@@ -112,10 +112,32 @@ Goal: an empty but correctly wired app deployed to Hostinger.
 - [ ] `0.3.5` (S) Automated DB backups — do this before you have real customer data, not after
 
 ## Epic 0.4 — Design system
-- [ ] `0.4.1` (M) Design tokens: colors, spacing, radii, shadows, typography scale in Tailwind config
-- [ ] `0.4.2` (M) Base components: Button, Input, Select, Modal, Toast, Card, Table, Tabs, Dropdown, Tooltip, Skeleton — all lucide-react icons, all responsive
-- [ ] `0.4.3` (S) Layout shell: sidebar (desktop) / bottom nav or drawer (mobile), max-width container for wide screens
-- [ ] `0.4.4` (S) Motion presets: shared transition configs (modal enter/exit, page fade, list stagger) so animation feels consistent
+- [x] `0.4.1` (M) Design tokens: colors, spacing, radii, shadows, typography scale in Tailwind config
+  - *`index.css` `@theme` block: semantic color tokens (background/foreground/card/popover/
+    muted/border/primary/secondary/destructive/success/warning) with light + dark values,
+    radius scale, elevation shadows, app-chrome font stack. Spacing and breakpoints are
+    Tailwind's untouched defaults — they already match the backlog's own breakpoint table,
+    documented as a deliberate choice rather than left unexplained.*
+- [x] `0.4.2` (M) Base components: Button, Input, Select, Modal, Toast, Card, Table, Tabs, Dropdown, Tooltip, Skeleton — all lucide-react icons, all responsive
+  - *All eleven in `components/ui/`. Select/Modal/Tabs/Dropdown/Tooltip build on Radix
+    primitives (unstyled, accessible — focus trap, portal, roving tabindex) styled with
+    Tailwind + the 0.4.1 tokens; Button/Input/Card/Table/Skeleton are plain Tailwind.
+    Toast here is the presentational card only — the queue/provider/`aria-live` system is
+    0.4b.6. Button's `isLoading` is the primitive 0.4b.8 builds its fuller pattern on.*
+- [x] `0.4.3` (S) Layout shell: sidebar (desktop) / bottom nav or drawer (mobile), max-width container for wide screens
+  - *`AppShell` + `Sidebar` (`lg:` and up) + `MobileNav` (drawer, not bottom nav — six nav
+    items don't fit a bottom bar above the 44px touch-target minimum). `react-router-dom`
+    installed and wired (stack table's locked choice, not a new decision) with placeholder
+    routes per nav item so routing and active-link state are real, not simulated. Content
+    wrapped in a `max-w-[1600px]` container per X.2.5. Verified with Puppeteer screenshots
+    at desktop and mobile widths, nav-link clicks, and the drawer open — all correct, zero
+    console errors.*
+- [x] `0.4.4` (S) Motion presets: shared transition configs (modal enter/exit, page fade, list stagger) so animation feels consistent
+  - *`lib/motion-presets.ts`: modal/page/list-stagger/toast variants + transitions, plus
+    `getTransition()` collapsing any preset to near-instant under `prefers-reduced-motion`
+    (0.4.5 still owns the full audit, but nothing here needs retrofitting for it). Modal
+    actually uses Motion (`AnimatePresence` + Radix `forceMount`), matching the stack
+    table's "Use for: modals..." — not left as a CSS-transition substitute.*
 - [ ] `0.4.5` (S) `prefers-reduced-motion` global handling
 
 ### Epic 0.4b — UI state primitives (build these before any feature screen)

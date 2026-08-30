@@ -56,6 +56,20 @@ export default defineConfig([
     },
   },
 
+  // Base component library (backlog 0.4.2): these files legitimately mix component
+  // exports with re-exported Radix primitives (`export const X = Primitive.Root`)
+  // and cva variant configs (`buttonVariants`). react-refresh/only-export-components
+  // can't statically prove a re-exported primitive is a component, so it false-
+  // positives on every compound-component file in this style — the same pattern
+  // shadcn/ui's own generated files hit. Scoped narrowly to this one folder rather
+  // than disabled project-wide.
+  {
+    files: ['apps/web/src/components/ui/**/*.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+
   // Backend and shared package.
   {
     files: ['apps/api/**/*.ts', 'packages/shared/**/*.ts'],

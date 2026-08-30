@@ -1,114 +1,125 @@
-/* Tailwind v4 is configured from CSS, not a tailwind.config.js file.
-   Design tokens (colors, spacing, radii, typography scale) land here as
-   @theme variables in task 0.4.1. */
+/* Tailwind v4 is configured from CSS, not a tailwind.config.js file. Everything below
+   is backlog 0.4.1's design tokens: colors, typography, radii, shadows.
+
+   Breakpoints are Tailwind's untouched defaults (sm 640 / md 768 / lg 1024 / xl 1280 /
+   2xl 1536) — they already line up exactly with the backlog's own breakpoint table
+   (phone < 640, tablet 768–1024, laptop 1024–1536 primary, wide > 1536), so there is
+   nothing to override. Spacing is Tailwind's default scale for the same reason: it is
+   already a well-considered 4px-based scale and every component below builds on it. */
 @import 'tailwindcss';
 
-:root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow: rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+@theme {
+  /* --- Typography ---
+     App-chrome font only. This is NOT the invoice-rendering font stack — that one
+     (self-hosted Noto Sans/Serif, full Cyrillic coverage) belongs to 3.1.6 and must
+     never be `system-ui` (decision D10). This token is for buttons, nav, forms: the
+     product UI, never a surface that reaches a PDF. */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* --- Radii ---
+     One scale, reused by every component so the whole app reads as one system. */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* --- Shadows ---
+     Elevation for cards / popovers / modals — tuned lower than Tailwind's defaults so
+     they read as a subtle lift, not a dark drop shadow, in both themes. */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1), 0 2px 4px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.14), 0 4px 8px rgba(15, 23, 42, 0.06);
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  /* --- Semantic colors ---
+     Every component reads these, never a raw hex or a Tailwind palette color
+     directly — that's what makes the dark-mode override below a one-time edit
+     instead of a find-and-replace across every component. */
+  --color-background: #ffffff;
+  --color-foreground: #0f172a;
+
+  --color-card: #ffffff;
+  --color-card-foreground: #0f172a;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0f172a;
+
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+
+  --color-border: #e2e8f0;
+  --color-input: #e2e8f0;
+  --color-ring: #2563eb;
+
+  --color-primary: #2563eb;
+  --color-primary-foreground: #ffffff;
+
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #0f172a;
+
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #ffffff;
+
+  --color-success: #16a34a;
+  --color-success-foreground: #ffffff;
+
+  /* Amber can't hit AA contrast with white text at a usable saturation — every design
+     system that uses it pairs a light tint with dark text instead of a solid fill. */
+  --color-warning: #fef3c7;
+  --color-warning-foreground: #92400e;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow: rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+  @theme {
+    --color-background: #0b0d12;
+    --color-foreground: #f1f5f9;
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
+    --color-card: #12141b;
+    --color-card-foreground: #f1f5f9;
+    --color-popover: #12141b;
+    --color-popover-foreground: #f1f5f9;
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-}
+    --color-muted: #1e2530;
+    --color-muted-foreground: #94a3b8;
 
-body {
-  margin: 0;
-}
+    --color-border: #2b3441;
+    --color-input: #2b3441;
+    --color-ring: #3b82f6;
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
+    --color-primary: #3b82f6;
+    --color-primary-foreground: #ffffff;
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+    --color-secondary: #1e2530;
+    --color-secondary-foreground: #f1f5f9;
+
+    --color-destructive: #ef4444;
+    --color-destructive-foreground: #ffffff;
+
+    --color-success: #22c55e;
+    --color-success-foreground: #052e12;
+
+    --color-warning: #451a03;
+    --color-warning-foreground: #fde68a;
   }
 }
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
+
+@layer base {
+  * {
+    border-color: var(--color-border);
   }
-}
-p {
-  margin: 0;
-}
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
+  html {
+    color-scheme: light dark;
+  }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+  body {
+    margin: 0;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }

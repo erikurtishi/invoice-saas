@@ -2,9 +2,11 @@ import { QueryClientProvider, QueryErrorResetBoundary } from '@tanstack/react-qu
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 
 import App from './App.tsx';
 import { AppErrorBoundary } from './components/AppErrorBoundary.tsx';
+import { TooltipProvider } from './components/ui/tooltip.tsx';
 import './index.css';
 import { queryClient } from './lib/query-client.ts';
 
@@ -20,7 +22,11 @@ createRoot(rootElement).render(
       <QueryErrorResetBoundary>
         {({ reset }) => (
           <AppErrorBoundary onReset={reset}>
-            <App />
+            <BrowserRouter>
+              <TooltipProvider>
+                <App />
+              </TooltipProvider>
+            </BrowserRouter>
           </AppErrorBoundary>
         )}
       </QueryErrorResetBoundary>
