@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+*.tsbuildinfo
+package-lock.json
+apps/web/public
+
+# Hand-authored product documents — Prettier would rewrite their tables and list
+# markers for no benefit. Keep them exactly as written.
+docs

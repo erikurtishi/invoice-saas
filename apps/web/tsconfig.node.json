@@ -13,6 +13,12 @@
     "moduleDetection": "force",
     "noEmit": true,
 
+    /* Strict type checking — matches apps/api and packages/shared */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,

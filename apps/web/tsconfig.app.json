@@ -16,6 +16,12 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* Strict type checking — matches apps/api and packages/shared */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,

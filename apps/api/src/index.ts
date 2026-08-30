@@ -1,15 +1,17 @@
-import express from "express";
-import cors from "cors";
+import cors from 'cors';
+import express from 'express';
+
+import { env } from './config/env.js';
 
 const app = express();
-app.use(cors());
+
+app.use(cors({ origin: env.WEB_ORIGIN }));
 app.use(express.json());
 
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
 });
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`API running on http://localhost:${PORT}`);
+app.listen(env.PORT, () => {
+  console.log(`API running on http://localhost:${env.PORT}`);
 });
