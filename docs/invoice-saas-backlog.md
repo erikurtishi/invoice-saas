@@ -694,47 +694,208 @@ The hardest and most differentiating part. Budget the most time here.
 # PHASE 5 — History
 
 ## Epic 5.1 — Event log
-- [ ] `5.1.1` (M) `InvoiceHistoryEvent` table: append-only, `invoice_id`, `event_type`, `timestamp`, `metadata` (e.g. recipient email), `user_id`
-- [ ] `5.1.2` (M) Emit events on: created, edited, downloaded, sent, duplicated-from, duplicated-into
-- [ ] `5.1.3` (S) Events are never edited or deleted — append only
+- [x] `5.1.1` (M) `InvoiceHistoryEvent` table: append-only, `invoice_id`, `event_type`, `timestamp`, `metadata` (e.g. recipient email), `user_id`
+  - *`invoice_history_events` (Prisma `InvoiceHistoryEvent`) — `tenantId` (D3, in
+    `TENANT_SCOPED_MODELS`), `invoiceId`, `eventType` (`InvoiceEventType` enum),
+    `userId` (acting user, plain column not a relation), `metadata Json @default("{}")`,
+    `timestamp` (named per the ticket, no `createdAt`/`updatedAt` — the row never
+    changes). Both FKs `onDelete: Cascade`; no `deletedAt` (an entry outlives a
+    soft-deleted invoice). Indexes: `(invoiceId, timestamp)` timeline, `(tenantId,
+    timestamp)` global feed, `(tenantId, eventType)` action filter. Wire shapes +
+    `metadata` validation in `@invoice-saas/shared` `invoice-history.ts`.*
+- [x] `5.1.2` (M) Emit events on: created, edited, downloaded, sent, duplicated-from, duplicated-into
+  - *`services/invoice-history-service.ts` `recordInvoiceEvent` / `tryRecordInvoiceEvent`
+    (best-effort — a lost log entry never fails the user action). Emit points:
+    `CREATED` at `finalizeInvoice` (decision: the invoice becoming a real numbered
+    document, **not** the draft buffer row — draft autosaves log nothing);
+    `EDITED` in `saveInvoice` only when the invoice is already `ISSUED`;
+    `DOWNLOADED` in `renderInvoicePdf` (one row per download → spec §7 "count" is
+    `COUNT(*)`; `metadata.withUnsavedEdits` for the 4.4.2 what-if render); `SENT`
+    in `sendInvoice` after the transport accepts (`metadata.recipient`); a
+    `duplicateInvoice` writes `DUPLICATED_INTO` on the source and `DUPLICATED_FROM`
+    on the copy, linked via `metadata.counterpartId` / `counterpartNumber`.
+    Smoke: `npm run history:check -w @invoice-saas/api`.*
+- [x] `5.1.3` (S) Events are never edited or deleted — append only
+  - *Enforced by surface, not a DB trigger (consistent with the app-level
+    invariants elsewhere): `invoice-history-service.ts` is the only writer and
+    exports insert-only — no update, no delete, anywhere. Rows leave only by
+    cascade when an invoice row is hard-deleted (invoices are soft-deleted, D4).*
 
 ## Epic 5.2 — History UI
-- [ ] `5.2.1` (M) Per-invoice history timeline in the invoice detail view
-- [ ] `5.2.2` (M) Dashboard: global activity view across all invoices, filterable by action type, client, date range
-- [ ] `5.2.3` (S) Download count and last-sent-to display on invoice rows
-- [ ] `5.2.4` (S) Motion-animated timeline entries (subtle stagger on load)
+- [x] `5.2.1` (M) Per-invoice history timeline in the invoice detail view
+  - *`GET /invoices/:id/history` → `listInvoiceHistory` (newest first, no
+    pagination — an invoice's log is bounded; 404 for a missing/deleted invoice,
+    same rule as the detail view). Web: `<InvoiceHistoryTimeline invoiceId>` in
+    the left column of `invoice-detail-page.tsx`, all five states via
+    `<QueryBoundary>` (a fresh draft shows the "nothing yet" empty state). Icon +
+    wording per event type in `components/history/history-event-meta.ts` (shared
+    with the dashboard); `DUPLICATED_*` rows render a `<Link>` to the counterpart
+    from `metadata.counterpartId`.*
+- [x] `5.2.2` (M) Dashboard: global activity view across all invoices, filterable by action type, client, date range
+  - *`GET /activity` (`activityListQuerySchema`: `eventType`, `clientId`,
+    `dateFrom`/`dateTo` on `timestamp`, page/pageSize) → `listActivity` — own
+    router, tenant scope on the top-level `where`, `invoice` relation
+    filter/include rides the same tenant; each row carries invoice number / type /
+    client / `invoiceDeleted`. Web: `routes/dashboard/dashboard-page.tsx` replaces
+    the `/` placeholder (authed home, inside the shell); the invoice library keeps
+    `/invoices`. **Not** the fuller "library + trail" combined view of spec §7 —
+    that, plus the public marketing `/` + `/console/*` + `/admin/*` split, is a
+    separate later restructure (user decision, this session).*
+- [x] `5.2.3` (S) Download count and last-sent-to display on invoice rows
+  - *`InvoiceListItem` gains `downloadCount` / `lastSentTo` / `lastSentAt`, rolled
+    up in `summariseInvoiceHistory` (two grouped queries for the page's ids, not
+    N per row) and merged in `listInvoices`. Web: one compact "Activity" column in
+    the library table — `⬇ N` + `✉ recipient` (title-attr for the last-sent date),
+    `—` when untouched.*
+- [x] `5.2.4` (S) Motion-animated timeline entries (subtle stagger on load)
+  - *`<InvoiceHistoryTimeline>` uses the shared `listContainerVariants` /
+    `listItemVariants` / `listItemTransition` presets (0.4.4) on a `motion.ul` /
+    `motion.li`, wrapped in `getTransition()` so it collapses under
+    `prefers-reduced-motion` (0.4.5) — no new preset, stays "one system".*
 
 > Explicitly **not** included: paid/unpaid status, overdue flags, payment reminders.
+
+> **Deferred (user decision, this session):** restructure routing to a public
+> marketing `/`, `/console/*` for the authed app, `/admin/*` for the admin center
+> (overlaps Epic 8). Its own task; Epic 5.2 kept the activity view at `/` inside
+> the current app shell.
 
 ---
 
 # PHASE 6 — Billing & subscriptions
 
 ## Epic 6.1 — Plan model & enforcement
-- [ ] `6.1.1` (M) Subscription schema: `tenant_id`, `tier`, `status`, `source` (stripe | manual), `start_date`, `end_date`
-- [ ] `6.1.2` (L) **Central entitlement service**: one function answers "can this tenant do X right now?" Checks Stripe subs and manual grants identically. Every gated action calls this — never scatter tier checks through the codebase.
-- [ ] `6.1.3` (M) Usage counters: invoices created (lifetime for Free, unlimited for paid), AI generations this month
-- [ ] `6.1.4` (M) **Server-side enforcement** on every gated endpoint — the UI hiding a button is not enforcement
-- [ ] `6.1.5` (M) Free tier rule: **1 invoice generation, lifetime, per account**; no AI; default template only
-- [ ] `6.1.6` (S) Upgrade prompts at limit boundaries — clear, not obnoxious
+- [x] `6.1.1` (M) Subscription schema: `tenant_id`, `tier`, `status`, `source` (stripe | manual), `start_date`, `end_date`
+  - *`Subscription` model (+ `SubscriptionStatus` / `SubscriptionSource` enums),
+    exactly the six fields 6.1.1 lists — Stripe linkage columns are deferred to
+    6.2, the manual-grant `note` to 6.3. In `TENANT_SCOPED_MODELS` as a guard, but
+    read only through the entitlement seam. Migration
+    `20260830221222_add_billing_subscription_usage`.*
+- [x] `6.1.2` (L) **Central entitlement service**: one function answers "can this tenant do X right now?" Checks Stripe subs and manual grants identically. Every gated action calls this — never scatter tier checks through the codebase.
+  - *`apps/api/src/lib/entitlements.ts` `resolveEntitlements(userId)` (decision
+    D22): reads all `Subscription` rows, lazily expires past-due grants, resolves
+    the highest active tier (decision D5), writes it back to the `users.tier`
+    cache (decision D14 — column kept), and layers the `UsageCounter` meters on
+    top. Per-tier numbers live in `PLAN_RULES` + `@invoice-saas/shared`
+    `billing.ts` (`PLAN_CATALOG`, limits) — config, not scattered branches. Smoke:
+    `npm run entitlements:check -w @invoice-saas/api`.*
+- [x] `6.1.3` (M) Usage counters: invoices created (lifetime for Free, unlimited for paid), AI generations this month
+  - *`UsageCounter` model (one row per tenant). `lifetimeInvoicesGenerated` only
+    ever increments — bumped inside `finalizeInvoice`'s transaction, so a later
+    soft delete never refunds the slot. `aiGenerationsInPeriod` + `aiPeriodKey`
+    ("YYYY-MM" UTC) is a calendar-month bucket (decision D6); `recordAiGeneration`
+    rolls it over. Phase 7 calls the AI writer on a successful generation.*
+- [x] `6.1.4` (M) **Server-side enforcement** on every gated endpoint — the UI hiding a button is not enforcement
+  - *`requireCanCreateInvoice` gates `POST /invoices`, `/:id/finalize`,
+    `/:id/duplicate` (an exhausted Free account can't even start a second draft —
+    user decision). `requireCanManageTemplates` already gates every `/templates`
+    write. `requireCanUseAi` added as the Phase 7 seam. All resolve through
+    `resolveEntitlements`; the web's `AuthUser.tier` / `GET /billing/entitlements`
+    are hints only.*
+- [x] `6.1.5` (M) Free tier rule: **1 invoice generation, lifetime, per account**; no AI; default template only
+  - *`FREE_INVOICE_LIFETIME_LIMIT = 1` in shared `billing.ts`. "Generation" = a
+    finalize. `PLAN_RULES.FREE` = `{ templates: false, ai: false, invoiceLimit: 1 }`;
+    templates were already default-only for Free (3.3.6).*
+- [x] `6.1.6` (S) Upgrade prompts at limit boundaries — clear, not obnoxious
+  - *`<UpgradeCallout>` (`components/billing/`) — one affordance, links to
+    `/pricing`. Shown on the invoice create page: a quiet banner on a Free
+    account's first/only invoice, a blocking card once the limit is spent (the
+    existing form-error banner still surfaces the server's 403 message). New
+    `/pricing` route (nav item "Plan"): a "your plan" usage panel from
+    `GET /billing/entitlements` through `<QueryBoundary>` + the spec §9 tier
+    comparison from `PLAN_CATALOG`, always rendered so a failed entitlements read
+    still leaves a useful page. Checkout buttons disabled until 6.2.*
 
 ## Epic 6.2 — Stripe integration
-- [ ] `6.2.1` (L) Stripe products/prices for Basic (€10/mo) and Premium (€30/mo)
-- [ ] `6.2.2` (L) Checkout flow; subscription created on success
-- [ ] `6.2.3` (L) Webhook handling: created, updated, cancelled, payment_failed — idempotent, signature-verified
-- [ ] `6.2.4` (M) Customer portal link for self-serve plan change/cancel/card update
-- [ ] `6.2.5` (M) Failed payment → grace period → downgrade to Free
-- [ ] `6.2.6` (S) Invoice/receipt emails for your own subscription billing (Stripe handles)
-- [ ] `6.2.7` (M) Pricing page with tier comparison
+- [x] `6.2.1` (L) Stripe products/prices for Basic (€10/mo) and Premium (€30/mo)
+  - *Idempotent `npm run stripe:setup -w @invoice-saas/api` — one Product per plan
+    (Stripe best practice), one recurring EUR Price each carrying a stable
+    `lookup_key` (`basic_monthly` / `premium_monthly`), plus a Customer Portal
+    configuration. Amounts come from `@invoice-saas/shared` `PLAN_CATALOG`
+    (minor units). Runtime resolves the price by lookup_key; `STRIPE_PRICE_*` env
+    vars can pin exact ids. Provisioned in the CLI test sandbox.*
+- [x] `6.2.2` (L) Checkout flow; subscription created on success
+  - *`POST /billing/checkout {tier}` → `createCheckoutUrl` (`lib/billing/`):
+    `ensureStripeCustomer` (one `cus_` per tenant, `metadata.userId`), then a
+    `mode:'subscription'` Checkout Session (no `payment_method_types` — dynamic),
+    `client_reference_id: userId`, success → `/pricing?checkout=success`. The
+    subscription lands via the webhook, not the success page. Web:
+    `useStartCheckout` → `window.location.assign(url)`; the return refetches
+    entitlements twice (webhook is async).*
+- [x] `6.2.3` (L) Webhook handling: created, updated, cancelled, payment_failed — idempotent, signature-verified
+  - *`POST /billing/webhook` mounted in `index.ts` with `express.raw` **before**
+    `express.json()`, no auth (signature is the auth). `verifyWebhook` →
+    `stripe.webhooks.constructEvent`. `services/stripe-webhook-service.ts`:
+    claims the event id in `processed_stripe_events` first (PK clash → no-op),
+    then `checkout.session.completed` / `customer.subscription.{created,updated,
+    deleted}` / `invoice.{paid,payment_failed}` all funnel through
+    `upsertFromStripe` → one `Subscription` row per `stripeSubscriptionId`, then
+    `resolveEntitlements` refreshes the `users.tier` cache. Verified against the
+    real sandbox: `npm run stripe:check` + a live `stripe listen` run.*
+- [x] `6.2.4` (M) Customer portal link for self-serve plan change/cancel/card update
+  - *`POST /billing/portal` → `billingPortal.sessions.create` with the config from
+    `stripe:setup` (`STRIPE_PORTAL_CONFIG_ID`). 409 if the account never started
+    billing. Web: "Manage billing" button on the plan panel + plan-switch /
+    downgrade CTAs route here (Checkout would open a second subscription) whenever
+    `entitlements.canManageBilling`.*
+- [x] `6.2.5` (M) Failed payment → grace period → downgrade to Free
+  - *Decision: mirror Stripe dunning (no custom timer). `invoice.payment_failed` →
+    our row `PAST_DUE`, which **still grants access** (the entitlement service
+    treats ACTIVE + PAST_DUE as granting). The grace window is Stripe's Smart
+    Retries schedule; when it exhausts Stripe sends `customer.subscription.deleted`
+    → our row `CANCELED`, `endDate` set, access drops to Free on the next lookup.*
+- [x] `6.2.6` (S) Invoice/receipt emails for your own subscription billing (Stripe handles)
+  - *Stripe-side setting, no app code. Enable "Email finalised invoices / receipts"
+    in the Stripe Dashboard (Settings → Billing → Customer emails). The Customer
+    object is created with the tenant's real email so Stripe can reach them.*
+- [x] `6.2.7` (M) Pricing page with tier comparison
+  - *`/pricing` (built as a shell in 6.1.6, completed here): "Your plan" panel
+    (tier, usage, renews-on / cancels-on) + the spec §9 comparison from
+    `PLAN_CATALOG`, always rendered (partial state on a failed entitlements read).
+    `GET /billing/config` `{stripeEnabled}` gates the CTAs — disabled "Coming
+    soon" when the server has no Stripe key. All 5 states via `<QueryBoundary>`.*
 
 ## Epic 6.3 — Manual (cash) subscription grants
-- [ ] `6.3.1` (M) Admin API: grant tier to tenant with explicit `start_date` and `end_date`, `source: manual`, optional note (e.g. "€20 cash, 2 months")
-- [ ] `6.3.2` (M) Admin UI: grant form with tier selector, date range picker, quick presets (1 / 2 / 3 / 6 / 12 months from today), amount-received note field
-- [ ] `6.3.3` (M) Automatic expiry: scheduled job (or lazy check on entitlement lookup — do both) reverts tenant to Free when `end_date` passes. No manual revocation step needed.
-- [ ] `6.3.4` (S) Extend / shorten / revoke an active manual grant
-- [ ] `6.3.5` (S) Conflict handling: what happens if a tenant with a manual grant also subscribes via Stripe (recommend: whichever gives more access wins, both records preserved)
-- [ ] `6.3.6` (S) Manual grants listed in admin clearly labeled by source, with expiry date and days remaining
-- [ ] `6.3.7` (S) User-facing: tenant sees their plan and expiry date, doesn't need to know it was a manual grant
+- [x] `6.3.1` (M) Admin API: grant tier to tenant with explicit `start_date` and `end_date`, `source: manual`, optional note (e.g. "€20 cash, 2 months")
+  - *`POST /admin/grants {email, tier, startDate, endDate, note?}` → resolves the
+    tenant by exact email (404 if unknown), creates a `Subscription`
+    `{source: MANUAL, status: ACTIVE}` with the window anchored to full UTC days
+    (start 00:00:00, end 23:59:59.999), then `resolveEntitlements` refreshes the
+    `users.tier` cache. `grantedByUserId` records the acting admin (lightweight
+    audit until 8.1.2). `services/manual-grant-service.ts` is the only writer of
+    MANUAL rows; new `Subscription.note` / `grantedByUserId` columns (migration
+    `20260831010000_manual_grant_fields`).*
+- [~] `6.3.2` (M) Admin UI: grant form with tier selector, date range picker, quick presets (1 / 2 / 3 / 6 / 12 months from today), amount-received note field
+  - *Deferred to the Epic 8 admin center (user decision — 6.3 ships the API only).
+    Interim: `npm run grant -w @invoice-saas/api -- --email <e> --tier BASIC
+    --months 2 --note "…"` (the `--months` presets live in the CLI).
+    `npm run set-admin` flips a user's role for testing.*
+- [x] `6.3.3` (M) Automatic expiry: scheduled job (or lazy check on entitlement lookup — do both) reverts tenant to Free when `end_date` passes. No manual revocation step needed.
+  - *Both: (1) `resolveEntitlements` already flips a granting row past its
+    `endDate` → `EXPIRED` on every lookup (correctness guarantee); (2)
+    `sweepExpiredGrants()` + `npm run grants:expire -w @invoice-saas/api` for a
+    crontab — same flip in one query, plus a tier-cache refresh for dormant
+    tenants. Only touches `source: MANUAL` (Stripe rows are the webhook's).*
+- [x] `6.3.4` (S) Extend / shorten / revoke an active manual grant
+  - *`PATCH /admin/grants/:id {startDate?, endDate?, note?}` — extending a lapsed
+    grant back into the future re-activates it. `DELETE /admin/grants/:id` revokes
+    now: `status: CANCELED`, `endDate: now`, **row kept** (D5). Both re-resolve
+    entitlements. 404 if the id isn't a `MANUAL` row.*
+- [x] `6.3.5` (S) Conflict handling: what happens if a tenant with a manual grant also subscribes via Stripe (recommend: whichever gives more access wins, both records preserved)
+  - *Already handled by the entitlement resolver (D5 / D22): every granting row —
+    `MANUAL` and `STRIPE`, `ACTIVE` or `PAST_DUE` — is considered and the highest
+    tier wins; no row is deleted or superseded. `grants:check` asserts a manual
+    PREMIUM beats a Stripe BASIC while both rows persist.*
+- [x] `6.3.6` (S) Manual grants listed in admin clearly labeled by source, with expiry date and days remaining
+  - *`GET /admin/grants?email=` → `{tenant: {id, email, businessName, tier}, grants: [...]}`
+    where each grant carries `status`, `startDate`, `endDate`, `note`,
+    `grantedByUserId`, `createdAt` and a computed `daysRemaining` (0 once lapsed).
+    All rows are `source: MANUAL` by construction. Full admin list view is 8.5.2.*
+- [x] `6.3.7` (S) User-facing: tenant sees their plan and expiry date, doesn't need to know it was a manual grant
+  - *No new work: the `/pricing` "Your plan" panel already shows the tier label +
+    "Access ends {date}" from `entitlements.accessEndsAt`, and never surfaces
+    `source`. A manual-grant tenant with no Stripe customer simply gets no
+    "Manage billing" button.*
 
 ---
 

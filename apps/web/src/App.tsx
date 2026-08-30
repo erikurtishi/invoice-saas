@@ -9,13 +9,13 @@ import { ErrorBoundary } from './components/state/error-boundary';
 import { ErrorState } from './components/state/error-state';
 import { useSession } from './features/auth/use-auth';
 import { getTransition, pageTransition, pageVariants } from './lib/motion-presets';
-import { PlaceholderPage } from './routes/placeholder-page';
 import { ForgotPasswordPage } from './routes/auth/forgot-password';
 import { LoginPage } from './routes/auth/login';
 import { ResetPasswordPage } from './routes/auth/reset-password';
 import { SignupPage } from './routes/auth/signup';
 import { VerifyEmailPage } from './routes/auth/verify-email';
 import { ClientsListPage } from './routes/clients/clients-list-page';
+import { DashboardPage } from './routes/dashboard/dashboard-page';
 import { InvoiceCreatePage } from './routes/invoices/invoice-create-page';
 import { InvoiceDetailPage } from './routes/invoices/invoice-detail-page';
 import { InvoiceEditPage } from './routes/invoices/invoice-edit-page';
@@ -24,6 +24,7 @@ import { ProductsListPage } from './routes/products/products-list-page';
 import { TemplateEditorPage } from './routes/templates/template-editor-page';
 import { TemplatesListPage } from './routes/templates/templates-list-page';
 import { OnboardingPage } from './routes/onboarding/onboarding-page';
+import { PricingPage } from './routes/pricing/pricing-page';
 import { BusinessProfilePage } from './routes/settings/business-profile-page';
 import { StateGallery } from './routes/dev/state-gallery';
 import { TemplateEditorDevPage } from './routes/dev/template-editor';
@@ -146,7 +147,7 @@ function RoutedContent() {
                 path="/"
                 element={
                   <PageTransition>
-                    <PlaceholderPage title="Dashboard" phase="Phase 5" />
+                    <DashboardPage />
                   </PageTransition>
                 }
               />
@@ -219,6 +220,14 @@ function RoutedContent() {
                 element={
                   <PageTransition>
                     <TemplateEditorPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="/pricing"
+                element={
+                  <PageTransition>
+                    <PricingPage />
                   </PageTransition>
                 }
               />

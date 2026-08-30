@@ -541,6 +541,12 @@ export const invoiceListItemSchema = z.object({
   issueDate: isoDate,
   dueDate: isoDate.nullable(),
   grandTotalMinor: z.number().int(),
+  /** Rolled up from the event log (backlog 5.2.3). `downloadCount` is the number
+   * of `DOWNLOADED` events; `lastSentTo` / `lastSentAt` come from the most recent
+   * `SENT` event (both null if never sent). */
+  downloadCount: z.number().int(),
+  lastSentTo: z.string().nullable(),
+  lastSentAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

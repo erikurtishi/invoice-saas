@@ -11,6 +11,15 @@ import { z } from 'zod';
  * module reads `process.env` — import `env` instead, so every variable the app needs
  * is declared in exactly one place.
  */
+/** An optional env var where a blank / whitespace-only value (a placeholder line
+ *  in `.env`) is treated as "unset" rather than failing the inner check. */
+function optionalEnv<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    schema.optional(),
+  );
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -62,6 +71,27 @@ const envSchema = z.object({
    * var goes away.
    */
   UPLOAD_DIR: z.string().min(1).default('var/uploads'),
+
+  /**
+   * Stripe billing (backlog Epic 6.2). All optional: with no `STRIPE_SECRET_KEY`
+   * the app boots with a `NullBilling` adapter and the `/billing/checkout` /
+   * `/portal` endpoints return 503 — same "degrade, don't crash" shape as the
+   * `Mailer` (D13) and `Storage` (D15) ports. Restricted test/live keys (`rk_…`)
+   * are preferred over secret keys (`sk_…`).
+   */
+  STRIPE_SECRET_KEY: optionalEnv(
+    z
+      .string()
+      .refine((v) => v.startsWith('rk_') || v.startsWith('sk_'), 'must be an rk_ or sk_ key'),
+  ),
+  /** From `stripe listen --print-secret` locally, or the Dashboard webhook endpoint. */
+  STRIPE_WEBHOOK_SECRET: optionalEnv(z.string().startsWith('whsec_')),
+  /** Optional exact Price IDs. Blank → resolved at runtime by `lookup_key`
+   * (`basic_monthly` / `premium_monthly`), which `npm run stripe:setup` creates. */
+  STRIPE_PRICE_BASIC: optionalEnv(z.string().startsWith('price_')),
+  STRIPE_PRICE_PREMIUM: optionalEnv(z.string().startsWith('price_')),
+  /** Customer Portal configuration id (`bpc_…`), printed by `npm run stripe:setup`. */
+  STRIPE_PORTAL_CONFIG_ID: optionalEnv(z.string().startsWith('bpc_')),
 });
 
 const parsed = envSchema.safeParse(process.env);

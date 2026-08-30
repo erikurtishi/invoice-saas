@@ -15,6 +15,7 @@ import { requireCanCreateInvoice } from '../lib/entitlements.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireTenant } from '../middleware/tenant.js';
 import { validate } from '../middleware/validate.js';
+import { listInvoiceHistory } from '../services/invoice-history-service.js';
 import {
   calculateTotals,
   createDraft,
@@ -42,6 +43,7 @@ import { renderInvoicePdf, sendInvoice } from '../services/pdf-service.js';
  * `DELETE /invoices/:id`           → soft delete (4.4.5, decision D4)
  * `POST   /invoices/calculate`     → stateless totals, server source of truth (4.2.3)
  * `GET    /invoices/:id`           → one invoice with its line items
+ * `GET    /invoices/:id/history`   → the invoice's event-log timeline (5.2.1)
  * `POST   /invoices/:id/pdf`       → fresh PDF; `{ draft }` renders unsaved edits (4.4.2)
  * `POST   /invoices/:id/send`      → email the PDF; `{ draft }` sends unsaved edits (4.4.2)
  */
@@ -86,6 +88,16 @@ invoicesRouter.get(
   validate({ params: idParamSchema }),
   async (req: Request<{ id: string }>, res) => {
     res.json(await getInvoice(req.db!, req.params.id));
+  },
+);
+
+// Per-invoice history timeline (backlog 5.2.1). No `:id` collision — the segment
+// after it is literal.
+invoicesRouter.get(
+  '/:id/history',
+  validate({ params: idParamSchema }),
+  async (req: Request<{ id: string }>, res) => {
+    res.json(await listInvoiceHistory(req.db!, req.params.id));
   },
 );
 

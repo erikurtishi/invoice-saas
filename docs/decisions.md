@@ -525,6 +525,192 @@ the caller's transaction client.
 
 ---
 
+## D21 — Invoice event log: what "created" and "edited" mean, and how append-only is enforced
+
+**Decided (settles what `5.1.1`–`5.1.3` and spec §7 leave implicit — the spec
+lists event kinds but not their timing against the draft→issued lifecycle):**
+
+**`CREATED` fires at finalize, not at draft-row creation.** An invoice's draft
+row is created lazily on the compose form's first autosave and may be discarded
+without ever being issued; the user's mental model of "created" is the moment it
+becomes a real, numbered document. `finalizeInvoice` emits `CREATED` — it is the
+first entry in every issued invoice's timeline. There is deliberately no separate
+"issued" event type (the `5.1.2` list has six, `CREATED` is it).
+
+**`EDITED` fires only for an already-`ISSUED` invoice.** `saveInvoice` runs on
+both a `DRAFT` (autosave, every ~1.2s while the form is open — `4.2.6`) and an
+`ISSUED` invoice (a real post-issue edit / "start from scratch" re-design —
+`4.4.2`). Only the latter is a user-meaningful edit; draft autosaves log nothing,
+which also keeps the timeline from drowning in autosave noise.
+
+**`DOWNLOADED` is one row per download.** Spec §7's "count" is `COUNT(*)` over the
+rows, not a mutable counter — consistent with append-only. The what-if render from
+the edit screen (`4.4.2`) still counts as a download; `metadata.withUnsavedEdits`
+marks it.
+
+**Append-only is enforced by module surface, not a DB trigger.** Consistent with
+the other app-level invariants (the single default template, integer money):
+`services/invoice-history-service.ts` is the only writer and exports insert-only.
+A `BEFORE UPDATE OR DELETE` trigger was rejected because it would fight the
+`onDelete: Cascade` used to clean a hard-deleted tenant's rows in tests/tooling.
+Rows leave only by that cascade (invoices themselves are soft-deleted, D4).
+
+**Logging is best-effort at the call site.** `tryRecordInvoiceEvent` swallows and
+logs its errors: nothing branches on the event log for behaviour, so a missed
+event is a display gap in the Epic 5.2 timeline, never a failed send / download /
+save.
+
+**Consequences:**
+- `@invoice-saas/shared` `invoice-history.ts` owns `INVOICE_EVENT_TYPES` (mirrors
+  the Prisma `InvoiceEventType` enum), the per-type `metadata` bag
+  (`invoiceHistoryMetadataSchema`, `.strict()` — validated before every write),
+  and `invoiceHistoryEventResponseSchema` for the Epic 5.2 read endpoints.
+- `InvoiceHistoryEvent` is in `TENANT_SCOPED_MODELS`; `userId` is a plain column
+  (not a `User` relation) so the write path stays a bare insert. Today
+  `userId == tenantId` (D3) — kept distinct for a future multi-user tenant.
+- Emit points wired in `invoice-service.ts` (`CREATED`, `EDITED`,
+  `DUPLICATED_FROM/INTO`) and `pdf-service.ts` (`DOWNLOADED`, `SENT`).
+  Smoke: `npm run history:check -w @invoice-saas/api`.
+- **Epic 5.2 (done):** read side is `listInvoiceHistory` / `listActivity` /
+  `summariseInvoiceHistory` in `invoice-history-service.ts`; `GET
+  /invoices/:id/history` and a dedicated `GET /activity` router; web
+  `features/history/`, `components/history/`, and
+  `routes/dashboard/dashboard-page.tsx` (replaced the `/` placeholder). The
+  dashboard is the activity feed only — **not** spec §7's fuller "library + trail"
+  combined view, and the public-`/` + `/console/*` + `/admin/*` route restructure
+  the user raised here is deferred to its own task (overlaps Epic 8).
+
+---
+
+## D22 — Entitlements resolution: Subscription rows are truth, `users.tier` is a cache
+
+**Decided (Epic 6.1, resolves the open half of D14 — "column dropped or kept as a
+cache"):** `Subscription` rows are the source of truth. `users.tier` is **kept**
+as a denormalised cache that `lib/entitlements.ts` — and nothing else — writes.
+
+`resolveEntitlements(userId)` is the one function (D19's seam, filled in):
+
+1. Read every `Subscription` for the tenant on the unscoped client with an
+   explicit `tenantId` (the seam also runs from auth/session contexts with no
+   `req.db`; `Subscription` + `UsageCounter` are still in `TENANT_SCOPED_MODELS`
+   as a guard against a stray `req.db` read).
+2. Lazily flip `ACTIVE` rows whose `endDate` has passed to `EXPIRED` — the "do
+   both" of `6.3.3`, so no scheduled job is required for correctness.
+3. Effective tier = highest `tier` among rows that are `ACTIVE`, started, and not
+   ended (decision D5, "most access wins"). No active row → `FREE`.
+4. If `users.tier` differs, update it. Auth keeps reading the cache via
+   `AuthUser.tier` with zero change; enforcement never trusts it.
+5. Layer the `UsageCounter` meters: `lifetimeInvoicesGenerated` (monotonic,
+   incremented in `finalizeInvoice`'s transaction — a soft delete never refunds
+   a Free account's one invoice) and `aiGenerationsInPeriod` keyed by a
+   `"YYYY-MM"` UTC month bucket (decision D6).
+
+**Why a cache, not a drop:** dropping `users.tier` forces every session issue /
+refresh to resolve subscriptions; keeping it means the write path is one `UPDATE`
+inside a lookup that already had the tenant loaded, and `AuthUser` / the web's
+gating hints keep working untouched. D14's real concern — "one reader, not
+scattered `if (tier === …)`" — is satisfied either way.
+
+**Config, not branches (decision D6):** the per-tier numbers live in `PLAN_RULES`
+(`lib/entitlements.ts`) and `@invoice-saas/shared` `billing.ts`
+(`PLAN_CATALOG`, `FREE_INVOICE_LIFETIME_LIMIT`, `PREMIUM_AI_MONTHLY_LIMIT`) — the
+web reads the same catalog for the pricing table so a limit can't drift between
+enforcement and display.
+
+**Consequences:**
+- `6.2` webhook handler and `6.3` admin grant flow only ever write `Subscription`
+  rows; they never touch `users.tier` — the next entitlement lookup reconciles it.
+- `GET /billing/entitlements` returns the shared `Entitlements` shape for the web.
+- Gated endpoints: `requireCanCreateInvoice` (invoice create / finalize /
+  duplicate), `requireCanManageTemplates` (`/templates` writes),
+  `requireCanUseAi` (Phase 7 seam). Smoke: `npm run entitlements:check`.
+
+---
+
+## D23 — Stripe integration shape (Epic 6.2)
+
+**Decided.** Card subscriptions run through a thin Stripe port and one webhook
+handler; the rest of the app never touches Stripe.
+
+- **Port:** `apps/api/src/lib/billing/` is the only place the `stripe` package is
+  imported. `stripe.ts` builds one client, or `null` when `STRIPE_SECRET_KEY` is
+  unset — the app still boots and `/billing/checkout` + `/billing/portal` return
+  503 (same "degrade, don't crash" shape as the `Mailer` D13 / `Storage` D15
+  ports). `GET /billing/config` tells the web whether to show or disable the
+  checkout CTAs.
+- **Catalog (6.2.1):** one Stripe Product per plan, one recurring EUR Price each
+  with a stable `lookup_key`. `npm run stripe:setup` provisions them + a Customer
+  Portal configuration, idempotently. Prices resolve by lookup_key at runtime;
+  `STRIPE_PRICE_*` env vars optionally pin exact ids. Amounts come from
+  `@invoice-saas/shared` `PLAN_CATALOG` (minor units).
+- **Checkout (6.2.2):** `mode: 'subscription'` Checkout Session, no
+  `payment_method_types` (dynamic methods), one `cus_` per tenant carrying
+  `metadata.userId`. The subscription is created by the webhook, never trusted
+  off the success page.
+- **Webhook (6.2.3):** mounted with `express.raw` **before** `express.json()`, no
+  auth — the signature is the auth (`stripe.webhooks.constructEvent`).
+  Idempotent via a `processed_stripe_events` row claimed before any work.
+  `checkout.session.completed`, `customer.subscription.{created,updated,deleted}`,
+  `invoice.{paid,payment_failed}` all funnel through one `upsertFromStripe` that
+  writes a single `Subscription` row per `stripeSubscriptionId` and then calls
+  `resolveEntitlements` to refresh the `users.tier` cache (D22). The handler
+  bypasses the central `errorHandler`: Stripe needs specific status codes
+  (2xx ack / 400 permanent / 5xx retry).
+- **Grace period (6.2.5):** mirror Stripe dunning — no timer of our own.
+  `invoice.payment_failed` → `PAST_DUE`, which **still grants access** (the
+  entitlement service treats `ACTIVE` and `PAST_DUE` as granting). Stripe's Smart
+  Retries schedule *is* the grace window; it ends with
+  `customer.subscription.deleted` → `CANCELED`, and the next lookup drops the
+  tenant to Free.
+- **Plan changes / cancellation (6.2.4):** the Customer Portal, not our UI. Any
+  account with a `stripeCustomerId` (`entitlements.canManageBilling`) gets a
+  "Manage billing" button; plan-switch / downgrade CTAs route there rather than
+  opening a second Checkout.
+- **Schema:** `users.stripeCustomerId` (unique); `subscriptions` gains
+  `stripeSubscriptionId` (unique), `stripePriceId`, `currentPeriodEnd`,
+  `cancelAtPeriodEnd`; new `processed_stripe_events`. Migration
+  `20260831000000_stripe_billing_linkage`.
+- **API version:** left at the SDK default (no `apiVersion` pin) — pinning a
+  string the installed SDK's types don't know breaks the build. A hardening pass
+  can pin it once the SDK is upgraded in lockstep.
+- **Verification:** `npm run stripe:check` drives the webhook service against real
+  sandbox subscription objects (create → upgrade → past_due → cancel-at-period-end
+  → deleted, idempotency, signature round-trip); a live `stripe listen` run
+  confirmed the raw-body HTTP path.
+
+---
+
+## D24 — Manual (cash) grants: a Subscription row + a minimal admin API (Epic 6.3)
+
+**Decided.**
+
+- **A manual grant is just a `Subscription` row** with `source: MANUAL`,
+  `status: ACTIVE`, and a fixed `[startDate, endDate]` window (anchored to full
+  UTC days). No new table, no new resolution path — the entitlement service
+  (D22) already picks the highest tier across every granting row, so a manual
+  grant overlapping a Stripe sub "just works" (settles 6.3.5; both rows kept).
+  Two new nullable columns: `note` (cash context) and `grantedByUserId` (the
+  acting admin — a lightweight audit trail until 8.1.2's `AdminAuditLog`).
+- **Admin surface = API only this epic** (user decision). `POST` / `PATCH` /
+  `DELETE /admin/grants` + `GET /admin/grants?email=`, behind a new
+  `requireAdmin` middleware (`users.role === 'ADMIN'`, re-read from the DB every
+  call so a revoked admin loses access before their JWT expires — pulls 8.1.1
+  forward, minimally). The grant *form* (6.3.2) is deferred to the Epic 8 admin
+  center; `npm run grant` / `npm run set-admin` are the interim tools.
+- **Tenant lookup by exact email** — no search endpoint (8.3.1 builds the real
+  tenant list). Unknown email → 404.
+- **Expiry: lazy + cron, no in-process timer.** `resolveEntitlements` flips
+  lapsed granting rows to `EXPIRED` on read (correctness); `sweepExpiredGrants()`
+  / `npm run grants:expire` is the crontab companion for dormant tenants. Only
+  `source: MANUAL` rows — Stripe lifecycle stays the webhook's.
+- **Revoke keeps the row** (`CANCELED` + `endDate: now`), never deletes it.
+- **`manual-grant-service.ts`** is the only writer of `MANUAL` rows; it runs on
+  the unscoped client with an explicit `tenantId`, like the rest of the billing
+  seam. Smoke: `npm run grants:check`. Migration
+  `20260831010000_manual_grant_fields`.
+
+---
+
 ## Still open
 
 - **Nothing blocks `0.2.2` now.** Postgres is running locally and verified; the VPS
@@ -538,3 +724,9 @@ the caller's transaction client.
 - **Cloud file storage backend:** S3 / Cloudflare R2 / VPS volume (D15). The `Storage`
   port and `LocalDiskStorage` are in place; the concrete cloud store is picked when
   single-box hosting stops being enough (not before deploy).
+- **Route restructure (deferred, user-raised in Epic 5.2):** move to a public
+  marketing `/`, `/console/*` for the authed app, `/admin/*` for the admin center.
+  Cross-cutting (every authed route, `App.tsx`, nav, guards, redirects, every
+  in-app link) and needs a marketing site that isn't in the backlog. Its own task,
+  likely alongside Epic 8. For now the authed app stays at top-level paths and the
+  activity dashboard sits at `/`.

@@ -1,4 +1,12 @@
-import { FileText, LayoutDashboard, LayoutTemplate, Package, Settings, Users } from 'lucide-react';
+import {
+  CreditCard,
+  FileText,
+  LayoutDashboard,
+  LayoutTemplate,
+  Package,
+  Settings,
+  Users,
+} from 'lucide-react';
 import type { ComponentType } from 'react';
 
 export interface NavItem {
@@ -19,5 +27,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/clients', label: 'Clients', icon: Users, end: false },
   { to: '/products', label: 'Products', icon: Package, end: false },
   { to: '/templates', label: 'Templates', icon: LayoutTemplate, end: false },
+  { to: '/pricing', label: 'Plan', icon: CreditCard, end: false },
   { to: '/settings', label: 'Settings', icon: Settings, end: false },
 ];

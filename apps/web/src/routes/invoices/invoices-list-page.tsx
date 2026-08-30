@@ -7,7 +7,7 @@ import {
   type InvoiceStatusFilter,
   minorToAmountString,
 } from '@invoice-saas/shared';
-import { Download, FileDown, MoreHorizontal, Plus, Search } from 'lucide-react';
+import { Download, FileDown, Mail, MoreHorizontal, Plus, Search } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -40,6 +40,7 @@ import {
 import { useDebouncedValue } from '../../hooks/use-debounced-value';
 import { useToast } from '../../hooks/use-toast';
 import { toUserMessage } from '../../lib/error-message';
+import { formatDate } from '../../lib/format-time';
 
 /** TODO(X.1.1): placeholder copy, see D9. */
 const COPY = {
@@ -59,7 +60,11 @@ const COPY = {
   colType: 'Type',
   colClient: 'Client',
   colDate: 'Issue date',
+  colActivity: 'Activity',
   colTotal: 'Total',
+  activityNone: '—',
+  downloadsTitle: (n: number) => `Downloaded ${n} time${n === 1 ? '' : 's'}`,
+  lastSentTitle: (to: string, when: string) => `Last sent to ${to} on ${when}`,
   rowActions: 'Invoice actions',
   open: 'Open',
   duplicate: 'Duplicate',
@@ -114,6 +119,43 @@ const ALL_TYPES = 'ALL';
 
 function money(item: InvoiceListItem): string {
   return `${minorToAmountString(item.grandTotalMinor)} ${item.currency}`;
+}
+
+/**
+ * The event-log roll-up for a row (backlog 5.2.3): download count and who it was
+ * last sent to, compact. `—` when neither has happened (every DRAFT, and issued
+ * invoices not yet touched).
+ */
+function ActivityCell({ item }: { item: InvoiceListItem }) {
+  if (item.downloadCount === 0 && !item.lastSentTo && !item.lastSentAt) {
+    return <span className="text-muted-foreground">{COPY.activityNone}</span>;
+  }
+  return (
+    <span className="flex items-center gap-3 text-xs text-muted-foreground">
+      {item.downloadCount > 0 && (
+        <span
+          className="inline-flex items-center gap-1 tabular-nums"
+          title={COPY.downloadsTitle(item.downloadCount)}
+        >
+          <Download className="size-3.5" aria-hidden />
+          {item.downloadCount}
+        </span>
+      )}
+      {item.lastSentAt && (
+        <span
+          className="inline-flex min-w-0 items-center gap-1"
+          title={
+            item.lastSentTo
+              ? COPY.lastSentTitle(item.lastSentTo, formatDate(item.lastSentAt))
+              : formatDate(item.lastSentAt)
+          }
+        >
+          <Mail className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate">{item.lastSentTo ?? formatDate(item.lastSentAt)}</span>
+        </span>
+      )}
+    </span>
+  );
 }
 
 /**
@@ -316,7 +358,7 @@ export function InvoicesListPage() {
 
       <QueryBoundary
         query={query}
-        loading={<SkeletonTable rows={8} columns={5} />}
+        loading={<SkeletonTable rows={8} columns={6} />}
         isEmpty={(data) => data.total === 0}
         empty={
           filtersActive ? (
@@ -353,6 +395,7 @@ export function InvoicesListPage() {
                     <TableHead>{COPY.colType}</TableHead>
                     <TableHead>{COPY.colClient}</TableHead>
                     <TableHead>{COPY.colDate}</TableHead>
+                    <TableHead>{COPY.colActivity}</TableHead>
                     <TableHead className="text-right">{COPY.colTotal}</TableHead>
                     <TableHead className="w-12" />
                   </TableRow>
@@ -375,6 +418,9 @@ export function InvoicesListPage() {
                         {invoice.clientName ?? COPY.none}
                       </TableCell>
                       <TableCell className="text-muted-foreground">{invoice.issueDate}</TableCell>
+                      <TableCell className="max-w-[12rem]">
+                        <ActivityCell item={invoice} />
+                      </TableCell>
                       <TableCell className="text-right tabular-nums text-foreground">
                         {money(invoice)}
                       </TableCell>

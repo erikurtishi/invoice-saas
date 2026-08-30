@@ -8,12 +8,16 @@ import { env, UPLOAD_URL_PATH, uploadDir } from './config/env.js';
 import { FONTS_DIR, FONTS_URL_PATH } from './lib/render-assets.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
+import { activityRouter } from './routes/activity.js';
+import { adminGrantsRouter } from './routes/admin/grants.js';
 import { authRouter } from './routes/auth.js';
+import { billingRouter } from './routes/billing.js';
 import { clientsRouter } from './routes/clients.js';
 import { invoicesRouter } from './routes/invoices.js';
 import { onboardingRouter } from './routes/onboarding.js';
 import { productsRouter } from './routes/products.js';
 import { profileRouter } from './routes/profile.js';
+import { stripeWebhookHandler } from './routes/stripe-webhook.js';
 import { templatesRouter } from './routes/templates.js';
 
 const app = express();
@@ -22,6 +26,11 @@ const app = express();
 // credentialed requests, and the web app fetches with `credentials: 'include'`.
 app.use(cors({ origin: env.WEB_ORIGIN, credentials: true }));
 app.use(requestLogger);
+
+// Stripe webhook (backlog 6.2.3) — MUST be before `express.json()`: signature
+// verification needs the raw request bytes. No auth (the signature is the auth).
+app.post('/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -71,6 +80,9 @@ app.use('/clients', clientsRouter);
 app.use('/products', productsRouter);
 app.use('/templates', templatesRouter);
 app.use('/invoices', invoicesRouter);
+app.use('/activity', activityRouter);
+app.use('/billing', billingRouter);
+app.use('/admin/grants', adminGrantsRouter);
 
 // Route modules are mounted above this line. Anything unmatched falls through to
 // these two — order matters, both must stay last (backlog 0.2.3, 0.2.5).

@@ -19,8 +19,15 @@ const TENANT_SCOPED_MODELS: readonly Prisma.ModelName[] = [
   'Product',
   'Template',
   'Invoice',
+  'InvoiceHistoryEvent',
   'InvoiceNumberSequence',
   'InvoiceNumberingSetting',
+  // Billing (Epic 6.1). Listed as a guard so a stray `req.db.subscription` /
+  // `req.db.usageCounter` read can't cross tenants — but the sanctioned accessor
+  // is `lib/entitlements.ts`, which uses the unscoped client with an explicit
+  // `tenantId` (it also runs from auth/session contexts that have no `req.db`).
+  'Subscription',
+  'UsageCounter',
 ];
 
 /** Operations that filter rows via a `where` clause. */

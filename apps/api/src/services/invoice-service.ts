@@ -21,6 +21,8 @@ import {
 import { prisma } from '../db/client.js';
 import type { ScopedPrismaClient } from '../db/tenant-scope.js';
 import { ApiError } from '../lib/api-error.js';
+import { recordInvoiceGenerated } from '../lib/entitlements.js';
+import { summariseInvoiceHistory, tryRecordInvoiceEvent } from './invoice-history-service.js';
 import { allocateInvoiceNumber, getNumberingSetting } from './invoice-numbering.js';
 import { createTemplate } from './template-service.js';
 
@@ -375,7 +377,18 @@ function buildInvoiceListWhere(query: InvoiceListQuery): Prisma.InvoiceWhereInpu
   return where;
 }
 
-function toListItem(row: Invoice): InvoiceListItem {
+type HistorySummary = {
+  downloadCount: number;
+  lastSentTo: string | null;
+  lastSentAt: string | null;
+};
+const EMPTY_HISTORY_SUMMARY: HistorySummary = {
+  downloadCount: 0,
+  lastSentTo: null,
+  lastSentAt: null,
+};
+
+function toListItem(row: Invoice, history: HistorySummary): InvoiceListItem {
   return {
     id: row.id,
     status: row.status,
@@ -387,6 +400,9 @@ function toListItem(row: Invoice): InvoiceListItem {
     issueDate: toIsoDate(row.issueDate),
     dueDate: row.dueDate ? toIsoDate(row.dueDate) : null,
     grandTotalMinor: row.grandTotalMinor,
+    downloadCount: history.downloadCount,
+    lastSentTo: history.lastSentTo,
+    lastSentAt: history.lastSentAt,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -407,8 +423,14 @@ export async function listInvoices(
     }),
   ]);
 
+  // Roll up the event log for just this page's rows (backlog 5.2.3).
+  const history = await summariseInvoiceHistory(
+    db,
+    rows.map((r) => r.id),
+  );
+
   return {
-    items: rows.map(toListItem),
+    items: rows.map((row) => toListItem(row, history.get(row.id) ?? EMPTY_HISTORY_SUMMARY)),
     page: query.page,
     pageSize: query.pageSize,
     total,
@@ -550,6 +572,13 @@ export async function saveInvoice(
       lineItems: { deleteMany: {}, create: lineItemRows },
     },
   });
+
+  // History (5.1.2): only an edit of an already-ISSUED document is logged. A
+  // DRAFT autosave is a compose-time buffer write, fired every ~1.2s while the
+  // form is open — not a user-meaningful "edit".
+  if (issued) {
+    await tryRecordInvoiceEvent(db, { invoiceId: id, eventType: 'EDITED', userId });
+  }
 
   return toInvoiceResponse(db, await loadInvoice(db, id));
 }
@@ -696,7 +725,25 @@ export async function duplicateInvoice(
       })),
   };
 
-  return createDraft(db, userId, input);
+  const copy = await createDraft(db, userId, input);
+
+  // History (5.1.2): link the two invoices from both ends. The new copy carries
+  // no number yet (it is a DRAFT), so `DUPLICATED_INTO` on the source records a
+  // null counterpart number.
+  await tryRecordInvoiceEvent(db, {
+    invoiceId: source.id,
+    eventType: 'DUPLICATED_INTO',
+    userId,
+    metadata: { counterpartId: copy.id, counterpartNumber: copy.number },
+  });
+  await tryRecordInvoiceEvent(db, {
+    invoiceId: copy.id,
+    eventType: 'DUPLICATED_FROM',
+    userId,
+    metadata: { counterpartId: source.id, counterpartNumber: source.number },
+  });
+
+  return copy;
 }
 
 /** Soft delete (decision D4). The number, if any, stays consumed — invoice
@@ -763,7 +810,16 @@ export async function finalizeInvoice(
         issuedAt: new Date(),
       },
     });
+    // Usage metering (6.1.3 / 6.1.5): "generation" = this finalize. Counted in
+    // the same transaction as the number so it can't drift, and monotonic — a
+    // later soft delete never refunds a Free account's one lifetime invoice.
+    await recordInvoiceGenerated(tx, tenantId);
   });
+
+  // History (5.1.2): `CREATED` marks the invoice becoming a real, numbered
+  // document — not the draft buffer row first appearing. This is the first entry
+  // in every issued invoice's timeline.
+  await tryRecordInvoiceEvent(db, { invoiceId: id, eventType: 'CREATED', userId });
 
   return toInvoiceResponse(db, await loadInvoice(db, id));
 }

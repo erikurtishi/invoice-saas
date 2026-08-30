@@ -11,6 +11,7 @@ import { ApiError } from '../lib/api-error.js';
 import { renderHtmlToPdf } from '../lib/pdf/browser-pool.js';
 import { buildInvoiceEmail } from '../mail/invoice-email.js';
 import { mailer } from '../mail/index.js';
+import { tryRecordInvoiceEvent } from './invoice-history-service.js';
 import { buildPreviewResponse, getInvoice } from './invoice-service.js';
 
 /**
@@ -70,7 +71,22 @@ export async function renderInvoicePdf(
   id: string,
   draft: InvoiceInput | null = null,
 ): Promise<InvoicePdf> {
-  return renderInvoicePdfFor(await resolveInvoice(db, userId, id, draft));
+  const result = await renderInvoicePdfFor(await resolveInvoice(db, userId, id, draft));
+
+  // History (5.1.2): one row per download; spec §7's "count" is `COUNT(*)` over
+  // these. `renderInvoicePdfFor` has already thrown 409 for a still-draft
+  // invoice, so a DOWNLOADED event only ever attaches to an ISSUED one.
+  await tryRecordInvoiceEvent(db, {
+    invoiceId: id,
+    eventType: 'DOWNLOADED',
+    userId,
+    metadata: {
+      filename: result.filename,
+      ...(draft ? { withUnsavedEdits: true } : {}),
+    },
+  });
+
+  return result;
 }
 
 export interface InvoiceSendResult {
@@ -129,6 +145,15 @@ export async function sendInvoice(
       { status: 502 },
     );
   }
+
+  // History (5.1.2): logged only after the transport accepts the message — a
+  // failed send (the 502 above) leaves no SENT entry.
+  await tryRecordInvoiceEvent(db, {
+    invoiceId: id,
+    eventType: 'SENT',
+    userId,
+    metadata: { recipient: invoice.client.email, filename },
+  });
 
   return { recipient: invoice.client.email, sentAt: new Date().toISOString(), filename };
 }

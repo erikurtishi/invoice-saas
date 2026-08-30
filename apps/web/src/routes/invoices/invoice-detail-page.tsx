@@ -6,6 +6,7 @@ import {
 import { AlertTriangle, ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { InvoiceHistoryTimeline } from '../../components/history/invoice-history-timeline';
 import { InvoiceActions } from '../../components/invoices/invoice-actions';
 import { InvoiceRecordActions } from '../../components/invoices/invoice-record-actions';
 import { TotalsPanel } from '../../components/invoices/totals-panel';
@@ -130,6 +131,10 @@ function DetailBody({ invoice }: { invoice: InvoiceResponse }) {
         />
 
         {!isDraft && <InvoiceActions invoice={invoice} />}
+
+        <div className="border-t border-border pt-5">
+          <InvoiceHistoryTimeline invoiceId={invoice.id} />
+        </div>
       </div>
 
       <div className="lg:sticky lg:top-4 lg:h-[calc(100dvh-6rem)]">

@@ -20,14 +20,36 @@ enum UserRole {
   ADMIN
 }
 
-/// Billing tier (backlog 1.2.1). Set to FREE on signup. Phase 6 introduces the full
-/// `Subscription` table and the central entitlement service (6.1.2) that becomes the
-/// source of truth for "what can this account do" — until then this column is it.
-/// Nothing should branch on it directly outside that (future) service.
+/// Billing tier (backlog 1.2.1). Set to FREE on signup. Phase 6's entitlement
+/// service (`lib/entitlements.ts`, 6.1.2) is the source of truth for "what can this
+/// account do": it resolves the `Subscription` rows below (Stripe + manual grants,
+/// decision D5) to a highest active tier and writes the result back here as a
+/// denormalised cache (decision D14 — kept, not dropped). `AuthUser.tier` reads this
+/// cache. Nothing branches on it directly outside `entitlements.ts`.
 enum UserTier {
   FREE
   BASIC
   PREMIUM
+}
+
+/// Lifecycle of a `Subscription` row (backlog 6.1.1). `ACTIVE` is the only state
+/// that grants access; `PAST_DUE` is the Stripe grace period before downgrade
+/// (6.2.5); `CANCELED` is an ended Stripe sub; `EXPIRED` is a manual grant whose
+/// `endDate` has passed (flipped lazily by the entitlement lookup, 6.3.3).
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+/// Where a `Subscription` came from (backlog 6.1.1, spec §9). Both sources feed the
+/// exact same entitlement logic — the app never cares which one granted access.
+/// `STRIPE` rows are written by Epic 6.2's webhook handler; `MANUAL` rows by the
+/// admin cash-grant flow in Epic 6.3.
+enum SubscriptionSource {
+  STRIPE
+  MANUAL
 }
 
 enum PaperSize {
@@ -57,6 +79,18 @@ enum InvoiceStatus {
   ISSUED
 }
 
+/// Kinds of `InvoiceHistoryEvent` (backlog 5.1.2, spec §7). Mirrors
+/// `INVOICE_EVENT_TYPES` in `@invoice-saas/shared` (`invoice-history.ts`) — keep
+/// the two in step. No "issued" value: `CREATED` is emitted at finalize.
+enum InvoiceEventType {
+  CREATED
+  EDITED
+  DOWNLOADED
+  SENT
+  DUPLICATED_FROM
+  DUPLICATED_INTO
+}
+
 /// How a `Client`'s address is held (backlog 2.1.3). `STRUCTURED` uses the
 /// line1/line2/city/postalCode/country columns; `FREE_TEXT` uses `addressText`.
 enum ClientAddressMode {
@@ -82,8 +116,8 @@ enum TokenPurpose {
 /// column is still named `tenant_id` and references this table's `id` — see D3 for
 /// why, and 0.2.4 for the middleware/Prisma extension that enforces the scope.
 model User {
-  id           String  @id @default(cuid())
-  email        String  @unique
+  id           String @id @default(cuid())
+  email        String @unique
   passwordHash String
 
   /// Null until the verification email is confirmed (1.1.2). Free-tier abuse
@@ -96,6 +130,13 @@ model User {
   /// Billing tier, assigned FREE at signup (1.2.1). See the `UserTier` note above:
   /// Phase 6's entitlement service supersedes this as the read path.
   tier UserTier @default(FREE)
+
+  /// The tenant's Stripe Customer id (`cus_…`), created the first time they start
+  /// checkout (Epic 6.2). One customer per tenant, reused for every subscription
+  /// and for the Customer Portal. Null until they interact with billing. The
+  /// Stripe customer's `metadata.userId` mirrors this row so a webhook can resolve
+  /// the tenant even before this column is set.
+  stripeCustomerId String? @unique
 
   /// Set when the user finishes or explicitly skips the post-signup onboarding
   /// wizard (1.2.4). Null → the web app routes them into the wizard on next load.
@@ -136,6 +177,10 @@ model User {
 
   invoiceNumberSequences   InvoiceNumberSequence[]
   invoiceNumberingSettings InvoiceNumberingSetting[]
+  invoiceHistoryEvents     InvoiceHistoryEvent[]
+
+  subscriptions Subscription[]
+  usageCounter  UsageCounter?
 
   @@map("users")
 }
@@ -215,7 +260,7 @@ model Product {
   /// Minor units, tenant default currency. Null → no standard price (set per invoice).
   defaultPriceMinor Int?
   /// Basis points (1800 = 18.00%). 0 = no tax.
-  defaultTaxRateBp  Int @default(0)
+  defaultTaxRateBp  Int  @default(0)
 
   deletedAt DateTime?
   createdAt DateTime  @default(now())
@@ -240,7 +285,7 @@ model Template {
   tenantId String
   tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  name String
+  name   String
   /// Validated by `templateConfigSchema` (@invoice-saas/shared, 3.1.1) — schema-
   /// versioned, never read unparsed.
   config Json
@@ -292,8 +337,8 @@ model Invoice {
   /// sequence on the first explicit Save (4.1.3); null while `DRAFT`.
   /// `numberSeq` is the raw integer the counter handed out; `number` is that
   /// integer rendered through the tenant's format string (`InvoiceNumberingSetting`).
-  number    String?
-  numberSeq Int?
+  number     String?
+  numberSeq  Int?
   /// The calendar year the counter counted in, when the sequence resets yearly
   /// (4.1.3). Null for a continuous sequence or a still-draft invoice.
   numberYear Int?
@@ -329,9 +374,9 @@ model Invoice {
   clientEmail   String?
   clientTaxId   String?
 
-  issueDate DateTime  @db.Date
+  issueDate     DateTime  @db.Date
   /// Invoice/Proforma → payment due; Quote → "valid until"; Credit note/Receipt → null.
-  dueDate   DateTime? @db.Date
+  dueDate       DateTime? @db.Date
   /// Receipt only (spec §5).
   paidDate      DateTime? @db.Date
   paymentMethod String?
@@ -359,7 +404,8 @@ model Invoice {
   /// invoice, `0` for a receipt.
   amountDueMinor     Int @default(0)
 
-  lineItems InvoiceLineItem[]
+  lineItems     InvoiceLineItem[]
+  historyEvents InvoiceHistoryEvent[]
 
   /// Set by the first explicit Save (alongside `number`). Distinct from
   /// `createdAt`, which is when the row was first autosaved as a draft.
@@ -403,9 +449,9 @@ model InvoiceLineItem {
   unit           String?
   unitPriceMinor Int
   /// Basis points (1800 = 18%).
-  taxRateBp  Int @default(0)
+  taxRateBp      Int     @default(0)
   /// Per-line discount, basis points of the line subtotal.
-  discountBp Int @default(0)
+  discountBp     Int     @default(0)
 
   lineSubtotalMinor Int @default(0)
   lineDiscountMinor Int @default(0)
@@ -417,6 +463,51 @@ model InvoiceLineItem {
 
   @@index([invoiceId, position])
   @@map("invoice_line_items")
+}
+
+/// One entry in an invoice's history (spec §7, backlog Epic 5.1): what happened,
+/// when, and who did it. Powers the per-invoice timeline (5.2.1) and the
+/// dashboard-wide activity view (5.2.2).
+///
+/// **Append-only (5.1.3):** rows are only ever inserted. `invoice-history-service.ts`
+/// is the single writer and exposes no update or delete; nothing branches on this
+/// table for behaviour, so a missed event is a display gap, never a correctness
+/// bug. There is no `deletedAt` — an entry outlives even a soft-deleted invoice
+/// (it is removed only if the invoice row is ever hard-deleted, via cascade).
+///
+/// Owner column `tenantId` → `users.id` (decision D3); scope injected by the
+/// extension in `db/tenant-scope.ts` (`InvoiceHistoryEvent` is in
+/// `TENANT_SCOPED_MODELS`). `userId` is the acting user — the same value as
+/// `tenantId` today, kept as its own column for when a tenant gains multiple
+/// users. `metadata` is a small JSON bag whose keys depend on `eventType`,
+/// validated by `invoiceHistoryMetadataSchema` (`@invoice-saas/shared`) before
+/// every write — e.g. `{ recipient }` for `SENT`, `{ counterpartId }` linking the
+/// other invoice for `DUPLICATED_*`.
+model InvoiceHistoryEvent {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  eventType InvoiceEventType
+  /// Who performed the action (references `users.id`; not a Prisma relation — the
+  /// write path stays a plain insert with no back-relation on `User`).
+  userId    String
+
+  /// Event-type-dependent JSON, `{}` when the event carries no extra detail.
+  /// Validated by `invoiceHistoryMetadataSchema` (`@invoice-saas/shared`).
+  metadata Json @default("{}")
+
+  /// When it happened. Named `timestamp` per backlog 5.1.1 (not `createdAt`);
+  /// there is no `updatedAt` — the row never changes.
+  timestamp DateTime @default(now())
+
+  @@index([invoiceId, timestamp])
+  @@index([tenantId, timestamp])
+  @@index([tenantId, eventType])
+  @@map("invoice_history_events")
 }
 
 /// The gapless counter behind invoice numbering (backlog 4.1.3). One row per
@@ -475,6 +566,108 @@ model InvoiceNumberingSetting {
   @@map("invoice_numbering_settings")
 }
 
+/// A grant of a paid tier to a tenant (backlog 6.1.1, spec §9). One tenant can hold
+/// several rows over time and more than one active at once (e.g. a manual grant that
+/// overlaps a Stripe sub) — the entitlement service (`lib/entitlements.ts`, 6.1.2)
+/// resolves all `ACTIVE` rows to a single highest tier (decision D5, "most access
+/// wins"), so both records are preserved and neither has to be cleaned up first.
+///
+/// Fields 6.1.1 asks for, plus the Stripe linkage added in Epic 6.2. Epic 6.3
+/// adds the manual-grant `note`.
+///
+/// Owner column `tenantId` → `users.id` (decision D3). `Subscription` is in
+/// `TENANT_SCOPED_MODELS` so an accidental `req.db.subscription` read can't cross
+/// tenants, but the sanctioned reader is the entitlement service, which uses the
+/// unscoped client with an explicit `tenantId` (it also runs from auth/session
+/// contexts that have no `req.db`).
+///
+/// One row per Stripe subscription (`stripeSubscriptionId` unique), upserted by
+/// the webhook handler (6.2.3). Manual grants (6.3) leave the Stripe columns null.
+model Subscription {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  tier   UserTier
+  status SubscriptionStatus @default(ACTIVE)
+  source SubscriptionSource
+
+  /// When access begins. A future `startDate` means the row is not active yet.
+  startDate DateTime  @default(now())
+  /// When access ends. Null = open-ended (a live Stripe recurring sub that keeps
+  /// renewing); set to a concrete date for manual grants (spec §9), for a Stripe
+  /// sub scheduled to cancel at period end, and for a cancelled one.
+  endDate   DateTime?
+
+  // --- Stripe linkage (Epic 6.2); null for manual grants ---
+  /// The `sub_…` id. Unique — the webhook upserts on it.
+  stripeSubscriptionId String? @unique
+  /// The `price_…` currently on the subscription (its tier is derived from this).
+  stripePriceId        String?
+  /// `current_period_end` from Stripe — the next renewal instant, shown as
+  /// "renews on …" while active and not cancelling.
+  currentPeriodEnd     DateTime?
+  /// Stripe's `cancel_at_period_end`: access continues until `endDate`, then stops.
+  cancelAtPeriodEnd    Boolean   @default(false)
+
+  // --- Manual grant (Epic 6.3); null for Stripe rows ---
+  /// Free-text context an admin records with a cash grant, e.g. "€20 cash, 2
+  /// months" (backlog 6.3.1).
+  note             String?
+  /// The admin `users.id` that issued this manual grant — a lightweight audit
+  /// trail (backlog 8.1.2 builds the full `AdminAuditLog`). Not a Prisma relation,
+  /// so the write path stays a plain insert. Null for Stripe rows and for grants
+  /// issued by the CLI.
+  grantedByUserId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@map("subscriptions")
+}
+
+/// Webhook idempotency (backlog 6.2.3 — "idempotent"). The handler inserts the
+/// Stripe event id before doing any work; a duplicate delivery hits the unique
+/// PK and is skipped. Not tenant-scoped — Stripe events are global.
+model ProcessedStripeEvent {
+  /// The Stripe `evt_…` id.
+  id        String   @id
+  type      String
+  createdAt DateTime @default(now())
+
+  @@map("processed_stripe_events")
+}
+
+/// Per-tenant usage meters enforced server-side (backlog 6.1.3, spec §9 — "not just
+/// in the UI"). One row per tenant, created lazily on the first metered action.
+///
+/// `lifetimeInvoicesGenerated` only ever increments — it is bumped inside the
+/// finalize transaction (`invoice-service.finalizeInvoice`), so soft-deleting an
+/// issued invoice never hands a Free account its one lifetime invoice back (6.1.5).
+/// `aiGenerationsInPeriod` is a calendar-month counter (decision D6, 50/mo on
+/// Premium): when `aiPeriodKey` ("YYYY-MM", UTC) no longer matches the current
+/// month the entitlement service treats the count as 0 and the next increment
+/// rewrites the key. Empty `aiPeriodKey` = never used.
+///
+/// Scoping: same arrangement as `Subscription` — in `TENANT_SCOPED_MODELS` as a
+/// guard, but written/read through `lib/entitlements.ts` on the unscoped client
+/// with an explicit `tenantId`.
+model UsageCounter {
+  tenantId String @id
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  lifetimeInvoicesGenerated Int @default(0)
+
+  aiGenerationsInPeriod Int    @default(0)
+  aiPeriodKey           String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("usage_counters")
+}
+
 /// One row per issued refresh token (backlog 1.1.1). The raw token is a random
 /// opaque string held only in the client's httpOnly cookie; we store its SHA-256
 /// hash so a database leak can't be replayed as a live session.
@@ -489,13 +682,13 @@ model RefreshToken {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  expiresAt DateTime
+  expiresAt    DateTime
   /// Set when the token is rotated (normal use) or force-revoked (logout, password
   /// reset, detected reuse). A row with `revokedAt == null && expiresAt > now` is
   /// the only kind that authenticates a refresh.
-  revokedAt DateTime?
+  revokedAt    DateTime?
   /// The token this one was rotated into, for reuse detection.
-  replacedById String? @unique
+  replacedById String?   @unique
 
   /// Coarse client fingerprint, for the "active sessions" view a later phase may add.
   userAgent String?

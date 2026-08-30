@@ -15,6 +15,14 @@
     "numbering:check": "tsx scripts/numbering-check.ts",
     "invoice:check": "tsx scripts/invoice-check.ts",
     "pdf:check": "tsx scripts/pdf-endpoint-check.ts",
+    "history:check": "tsx scripts/history-check.ts",
+    "entitlements:check": "tsx scripts/entitlements-check.ts",
+    "stripe:setup": "tsx scripts/stripe-setup.ts",
+    "stripe:check": "tsx scripts/stripe-check.ts",
+    "grant": "tsx scripts/grant.ts",
+    "grants:expire": "tsx scripts/expire-grants.ts",
+    "grants:check": "tsx scripts/manual-grant-check.ts",
+    "set-admin": "tsx scripts/set-admin.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
@@ -34,6 +42,7 @@
     "multer": "^2.3.0",
     "puppeteer": "^25.9.0",
     "sharp": "^0.35.4",
+    "stripe": "^22.6.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
