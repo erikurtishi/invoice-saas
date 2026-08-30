@@ -10,6 +10,7 @@ import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { activityRouter } from './routes/activity.js';
 import { adminGrantsRouter } from './routes/admin/grants.js';
+import { aiRouter } from './routes/ai.js';
 import { authRouter } from './routes/auth.js';
 import { billingRouter } from './routes/billing.js';
 import { clientsRouter } from './routes/clients.js';
@@ -81,6 +82,7 @@ app.use('/products', productsRouter);
 app.use('/templates', templatesRouter);
 app.use('/invoices', invoicesRouter);
 app.use('/activity', activityRouter);
+app.use('/ai', aiRouter);
 app.use('/billing', billingRouter);
 app.use('/admin/grants', adminGrantsRouter);
 

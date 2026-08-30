@@ -1,8 +1,10 @@
 import {
+  type AiDraftResponse,
   type BusinessProfileResponse,
   type ClientResponse,
   computeInvoiceTotals,
   defaultTemplateConfig,
+  type Entitlements,
   type InvoiceInput,
   invoiceInputSchema,
   type InvoiceResponse,
@@ -12,15 +14,17 @@ import {
 } from '@invoice-saas/shared';
 import { useEffect, useMemo, useState } from 'react';
 
+import { fetchClient } from '../../features/clients/clients-api';
 import { useInvoiceDraft } from '../../features/invoices/use-invoice-draft';
 import { useToast } from '../../hooks/use-toast';
 import { HttpError } from '../../lib/http-error';
 import { toUserMessage } from '../../lib/error-message';
 import { FormBanner } from '../form/form-banner';
 import { Button, ConfirmDialog } from '../ui';
+import { AiDraftPanel } from './ai-draft-panel';
 import { InvoiceFormFields } from './invoice-form-fields';
 import { type HeaderState, initialHeader, SCRATCH } from './invoice-form-state';
-import { type LineRow, rowsToLineItems } from './line-items';
+import { type LineRow, rowsFromAiDraft, rowsToLineItems } from './line-items';
 
 /** TODO(X.1.1): placeholder copy, see D9. */
 const COPY = {
@@ -42,6 +46,10 @@ const COPY = {
 export interface InvoiceFormProps {
   profile: BusinessProfileResponse;
   templates: TemplateResponse[];
+  /** For the AI drafting panel's Premium gate + remaining counter (backlog 7.2).
+   *  Undefined while entitlements load / fail — the panel then hides the counter
+   *  and the server still enforces (7.1.6). */
+  entitlements?: Entitlements | undefined;
   onIssued: (invoice: InvoiceResponse) => void;
   onCancel: () => void;
 }
@@ -51,12 +59,20 @@ export interface InvoiceFormProps {
  * DRAFT, then one explicit Save that finalizes it (number + ISSUED). The form
  * body is `<InvoiceFormFields>`, shared with the edit flow (Epic 4.4).
  */
-export function InvoiceForm({ profile, templates, onIssued, onCancel }: InvoiceFormProps) {
+export function InvoiceForm({
+  profile,
+  templates,
+  entitlements,
+  onIssued,
+  onCancel,
+}: InvoiceFormProps) {
   const toast = useToast();
 
   const [header, setHeader] = useState<HeaderState>(() => initialHeader(profile));
   const [rows, setRows] = useState<LineRow[]>([]);
   const [selectedClient, setSelectedClient] = useState<ClientResponse | null>(null);
+  /** Field keys an AI draft filled but the user hasn't touched yet (7.2.3). */
+  const [aiFilled, setAiFilled] = useState<ReadonlySet<string>>(() => new Set());
 
   const defaultTemplateId = templates.find((t) => t.isDefault)?.id ?? templates[0]?.id ?? SCRATCH;
   const [templateChoice, setTemplateChoice] = useState<string>(defaultTemplateId);
@@ -113,14 +129,75 @@ export function InvoiceForm({ profile, templates, onIssued, onCancel }: InvoiceF
   const serverTotals = draft.serverInvoice?.totals ?? null;
   const totals = serverTotals ?? localTotals;
 
+  /** Drop a field's "AI filled" marker once the user edits it (7.2.3). */
+  const clearAiFilled = (key: string) => {
+    setAiFilled((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
   const setField = <K extends keyof HeaderState>(key: K, value: HeaderState[K]) => {
     setHeader((prev) => ({ ...prev, [key]: value }));
+    clearAiFilled(key);
     setFieldErrors((prev) => {
       if (!(key in prev)) return prev;
       const next = { ...prev };
       delete next[key as string];
       return next;
     });
+  };
+
+  const handleRowsChange = (next: LineRow[]) => {
+    setRows(next);
+    clearAiFilled('lineItems');
+  };
+
+  const handleClientChange = (client: ClientResponse | null) => {
+    setSelectedClient(client);
+    clearAiFilled('client');
+  };
+
+  /**
+   * Map an AI draft into form state (backlog 7.2.2). Nothing is persisted — the
+   * autosave effect picks up the change and the user still goes through Save
+   * (7.2.3). `filledFields` drives the per-field "verify" badges.
+   */
+  const applyAiDraft = (result: AiDraftResponse) => {
+    const d = result.draft;
+    setHeader((prev) => ({
+      ...prev,
+      documentType: d.documentType,
+      language: d.language,
+      currency: d.currency,
+      issueDate: d.issueDate,
+      dueDate: d.dueDate,
+      reference: d.reference,
+      notes: d.notes,
+    }));
+    setRows(rowsFromAiDraft(d.lineItems));
+    setFieldErrors({});
+    setFormError(null);
+    setAiFilled(new Set(result.filledFields));
+
+    if (result.clientMatch.kind === 'matched') {
+      const { clientId } = result.clientMatch;
+      void fetchClient(clientId)
+        .then((client) => {
+          setSelectedClient(client);
+          setHeader((prev) => ({ ...prev, clientId: client.id }));
+        })
+        .catch(() => {
+          toast.error('The matched client couldn’t be loaded — pick it manually.');
+          setAiFilled((prev) => {
+            const next = new Set(prev);
+            next.delete('client');
+            return next;
+          });
+        });
+    }
   };
 
   const dirty = selectedClient !== null || rows.length > 0 || header.reference !== null;
@@ -180,6 +257,12 @@ export function InvoiceForm({ profile, templates, onIssued, onCancel }: InvoiceF
 
   return (
     <div className="flex flex-col gap-5">
+      <AiDraftPanel
+        canUseAi={entitlements?.canUseAi ?? false}
+        ai={entitlements?.ai}
+        onApply={applyAiDraft}
+      />
+
       <div className="flex items-center justify-between gap-4">
         <span className="text-xs text-muted-foreground" role="status" aria-live="polite">
           {saveStatus}
@@ -202,9 +285,9 @@ export function InvoiceForm({ profile, templates, onIssued, onCancel }: InvoiceF
         header={header}
         setField={setField}
         rows={rows}
-        onRowsChange={setRows}
+        onRowsChange={handleRowsChange}
         selectedClient={selectedClient}
-        onClientChange={setSelectedClient}
+        onClientChange={handleClientChange}
         templateChoice={templateChoice}
         onTemplateChoiceChange={setTemplateChoice}
         inlineName={inlineName}
@@ -212,6 +295,7 @@ export function InvoiceForm({ profile, templates, onIssued, onCancel }: InvoiceF
         inlineConfig={inlineConfig}
         onInlineConfigChange={setInlineConfig}
         fieldErrors={fieldErrors}
+        aiFilledFields={aiFilled}
         payload={payload}
         totals={totals}
         syncing={draft.saveState === 'saving' || serverTotals === null}

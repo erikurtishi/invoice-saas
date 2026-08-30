@@ -11,6 +11,7 @@
 
 export const SHARED_PACKAGE_NAME = '@invoice-saas/shared' as const;
 
+export * from './ai.js';
 export * from './api-error.js';
 export * from './auth.js';
 export * from './billing.js';

@@ -35,6 +35,9 @@ export interface FormFieldProps {
   hint?: ReactNode;
   required?: boolean;
   className?: string;
+  /** A small node rendered just after the label — e.g. the "AI-filled, verify"
+   * marker on fields an AI draft populated (backlog 7.2.3). */
+  badge?: ReactNode;
   children: (args: { controlProps: FieldControlProps; invalid: boolean }) => ReactNode;
 }
 
@@ -47,6 +50,7 @@ export function FormField({
   hint,
   required = false,
   className,
+  badge,
   children,
 }: FormFieldProps) {
   const id = useId();
@@ -59,11 +63,16 @@ export function FormField({
 
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
-      <label htmlFor={id} className="text-sm font-medium text-foreground">
-        {label}
-        {!required && (
-          <span className="ml-1 text-xs font-normal text-muted-foreground">({COPY.optional})</span>
-        )}
+      <label htmlFor={id} className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+        <span>
+          {label}
+          {!required && (
+            <span className="ml-1 text-xs font-normal text-muted-foreground">
+              ({COPY.optional})
+            </span>
+          )}
+        </span>
+        {badge}
       </label>
 
       {children({

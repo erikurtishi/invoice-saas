@@ -12,6 +12,7 @@ import {
 } from '@invoice-saas/shared';
 import { useState } from 'react';
 
+import { AiFilledBadge } from '../form/ai-filled-badge';
 import { FormField } from '../form/field';
 import { TemplateEditor } from '../template/template-editor';
 import {
@@ -85,6 +86,9 @@ export interface InvoiceFormFieldsProps {
   /** Document type can't change after an invoice is issued (4.4.2). */
   lockDocumentType?: boolean;
   fieldErrors: Record<string, string>;
+  /** Field keys an AI draft just populated (backlog 7.2.3) — each gets an "AI,
+   *  verify" badge until the user edits it. `'lineItems'` marks the editor. */
+  aiFilledFields?: ReadonlySet<string> | undefined;
 
   /** Assembled for the preview + totals; the parent owns how they're computed. */
   payload: InvoiceInput;
@@ -117,6 +121,7 @@ export function InvoiceFormFields({
   fallbackTemplateConfig,
   lockDocumentType = false,
   fieldErrors,
+  aiFilledFields,
   payload,
   totals,
   syncing,
@@ -126,6 +131,7 @@ export function InvoiceFormFields({
 
   const fields = DOCUMENT_TYPE_FIELDS[header.documentType];
   const isScratch = templateChoice === SCRATCH;
+  const aiBadge = (key: string) => (aiFilledFields?.has(key) ? <AiFilledBadge /> : undefined);
 
   // Include the invoice's own template as an option even if it's been deleted
   // from the library (X.7.22 — a historical invoice keeps its design).
@@ -163,7 +169,7 @@ export function InvoiceFormFields({
             )}
           </FormField>
 
-          <FormField label={COPY.currency} required>
+          <FormField label={COPY.currency} required badge={aiBadge('currency')}>
             {({ controlProps }) => (
               <Select
                 {...controlProps}
@@ -175,7 +181,12 @@ export function InvoiceFormFields({
           </FormField>
         </div>
 
-        <FormField label={COPY.client} required error={fieldErrors.clientId}>
+        <FormField
+          label={COPY.client}
+          required
+          error={fieldErrors.clientId}
+          badge={aiBadge('client')}
+        >
           {({ controlProps, invalid }) => (
             <ClientPicker
               id={controlProps.id}
@@ -228,7 +239,12 @@ export function InvoiceFormFields({
         </FormField>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label={COPY.issueDate} required error={fieldErrors.issueDate}>
+          <FormField
+            label={COPY.issueDate}
+            required
+            error={fieldErrors.issueDate}
+            badge={aiBadge('issueDate')}
+          >
             {({ controlProps, invalid }) => (
               <Input
                 {...controlProps}
@@ -244,6 +260,7 @@ export function InvoiceFormFields({
             <FormField
               label={fields.secondaryDate === 'validUntil' ? COPY.validUntil : COPY.dueDate}
               error={fieldErrors.dueDate}
+              badge={aiBadge('dueDate')}
             >
               {({ controlProps, invalid }) => (
                 <Input
@@ -293,7 +310,7 @@ export function InvoiceFormFields({
             )}
           </FormField>
 
-          <FormField label={COPY.reference}>
+          <FormField label={COPY.reference} badge={aiBadge('reference')}>
             {({ controlProps }) => (
               <Input
                 {...controlProps}
@@ -317,10 +334,17 @@ export function InvoiceFormFields({
           )}
         </div>
 
-        <LineItemsEditor rows={rows} onChange={onRowsChange} currency={header.currency} />
+        <div className="flex flex-col gap-2">
+          {aiFilledFields?.has('lineItems') && (
+            <span className="self-start">
+              <AiFilledBadge />
+            </span>
+          )}
+          <LineItemsEditor rows={rows} onChange={onRowsChange} currency={header.currency} />
+        </div>
 
         <div className="grid gap-4">
-          <FormField label={COPY.notes}>
+          <FormField label={COPY.notes} badge={aiBadge('notes')}>
             {({ controlProps }) => (
               <Textarea
                 {...controlProps}

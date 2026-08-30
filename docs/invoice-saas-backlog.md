@@ -902,21 +902,80 @@ The hardest and most differentiating part. Budget the most time here.
 # PHASE 7 — AI drafting (Premium)
 
 ## Epic 7.1 — Backend
-- [ ] `7.1.1` (L) LLM API integration with a strict structured output schema (client name, line items with description/qty/unit price, dates, currency)
-- [ ] `7.1.2` (M) Prompt design + Zod validation of the model's response; reject and retry malformed output
-- [ ] `7.1.3` (M) **Guardrails**: AI never computes totals or tax — it returns only the raw numbers, your code calculates everything. Uncertain fields come back empty, never guessed.
-- [ ] `7.1.4` (M) Client matching: fuzzy-match extracted name against existing clients; flag as new if no confident match
-- [ ] `7.1.5` (M) Relative date parsing ("due in 15 days" → actual date in tenant's timezone)
-- [ ] `7.1.6` (M) Rate limiting per tenant (e.g. 30–50/month), counter increments only on successful generation
-- [ ] `7.1.7` (S) Cost logging per generation for admin monitoring
-- [ ] `7.1.8` (S) Graceful failure: API down or malformed → clear message, no counter increment
+- [~] `7.1.1` (L) LLM API integration with a strict structured output schema (client name, line items with description/qty/unit price, dates, currency)
+  - *Port only, concrete provider deferred (user decision — Anthropic vs OpenAI
+    still open, see D25). `AiDrafter` port + `NullDrafter` in `apps/api/src/lib/ai/`
+    (`/ai/draft-invoice` 503s until an adapter is wired); the strict schema itself
+    is `aiExtractionSchema` in `@invoice-saas/shared/ai.ts` and is fully live —
+    exercised by `npm run ai:check` with a fake drafter. One new class + a
+    one-line swap in `lib/ai/index.ts` finishes this.*
+- [x] `7.1.2` (M) Prompt design + Zod validation of the model's response; reject and retry malformed output
+  - *`ai-draft-service.ts extractWithRetry`: parse against `aiExtractionSchema`,
+    on failure re-request once with a `repairHint` summarising the Zod issues, a
+    second failure → graceful `502`, nothing charged. Prompt/context assembly
+    (`AiDraftContext`: prompt, UTC today, default currency, known client names) is
+    the port's input; the concrete prompt string lands with the adapter (7.1.1).*
+- [x] `7.1.3` (M) **Guardrails**: AI never computes totals or tax — it returns only the raw numbers, your code calculates everything. Uncertain fields come back empty, never guessed.
+  - *`aiExtractionSchema` has no subtotal/tax/grand-total/line-total fields at all;
+    unknown keys are stripped so a stray `total` is ignored, never acted on. The
+    model returns `unitPriceAmount` / `quantity` / `taxRatePercent` (a stated rate
+    only) and `ai-draft-service.ts` converts to integer minor units / bp; every
+    derived total stays with the normal save path. Missing values → `0`/blank +
+    an `uncertainFields` entry + a warning, never a guess.*
+- [x] `7.1.4` (M) Client matching: fuzzy-match extracted name against existing clients; flag as new if no confident match
+  - *`lib/ai/fuzzy.ts` — normalised Levenshtein (accents/punctuation stripped,
+    legal-form tokens like LLC / SH.P.K / DOO dropped), no dependency. Ratio ≥
+    `AI_CLIENT_MATCH_THRESHOLD` (0.82, `@invoice-saas/shared`) → `matched` with a
+    confidence; otherwise `new` with prefilled `FREE_TEXT` fields; no name → `none`.*
+- [x] `7.1.5` (M) Relative date parsing ("due in 15 days" → actual date in tenant's timezone)
+  - *UTC, not a tenant timezone (user decision — no TZ column exists yet). The
+    model returns `dueInDays` (an integer offset), never a computed date;
+    `ai-draft-service.addDaysUtc` resolves it against today (UTC). An explicitly
+    dated "due 5 April" comes back as `dueDate` and wins.*
+- [x] `7.1.6` (M) Rate limiting per tenant (e.g. 30–50/month), counter increments only on successful generation
+  - *No new machinery — reuses the Phase 6 seam: `requireCanUseAi` gates the
+    endpoint (403 for non-Premium or a spent cap, before any model call) and
+    `recordAiGeneration` runs only after a fully successful, schema-valid
+    generation. Cap is `PREMIUM_AI_MONTHLY_LIMIT` = 50 (D6).*
+- [x] `7.1.7` (S) Cost logging per generation for admin monitoring
+  - *New `AiGenerationLog` table (migration `20260831020000_add_ai_generation_log`),
+    one row per attempt — `SUCCESS` / `INVALID_OUTPUT` / `PROVIDER_ERROR` /
+    `RATE_LIMITED` — with model, token counts, `retries`, and an integer
+    `costMicros` (USD-millionths, D17 style; `lib/ai/cost.ts` per-model rate
+    table, unknown model → 0). Tenant-scoped; `ai-draft-service.ts` is the only
+    writer. Aggregate admin view is 8.4.1.*
+- [x] `7.1.8` (S) Graceful failure: API down or malformed → clear message, no counter increment
+  - *Provider throw / timeout / unconfigured `NullDrafter` → `AiProviderError` →
+    503 "…temporarily unavailable. Your monthly allowance was not affected.";
+    two malformed replies → 502. Both log a row (for cost visibility) and never
+    call `recordAiGeneration`. Provider-side 429 → `RATE_LIMITED`.*
 
 ## Epic 7.2 — Frontend
-- [ ] `7.2.1` (M) AI input box above the invoice form, Premium-gated with upgrade prompt for others
-- [ ] `7.2.2` (M) Loading state with Motion animation; result populates the normal form fields
-- [ ] `7.2.3` (M) Visual indication of AI-filled fields so the user knows what to verify; nothing auto-sends or auto-saves
-- [ ] `7.2.4` (S) Remaining-generations counter display
-- [ ] `7.2.5` (S) Example prompts / placeholder text to teach the format
+- [x] `7.2.1` (M) AI input box above the invoice form, Premium-gated with upgrade prompt for others
+  - *`components/invoices/ai-draft-panel.tsx`, rendered by `invoice-form.tsx` as
+    the first child (create flow only — the edit form has no panel). `canUseAi`
+    false → `<UpgradeCallout variant="card">`; true → the prompt box. Also handles
+    "provider not wired" via `GET /ai/status` (`features/ai/`), disabling the box
+    with a note rather than failing on submit — mirrors `/billing/config`.*
+- [x] `7.2.2` (M) Loading state with Motion animation; result populates the normal form fields
+  - *`AnimatePresence mode="wait"` swaps the box for a pulsing-Sparkles "Drafting
+    your invoice…" panel while `useDraftInvoice` is pending. On success
+    `invoice-form.applyAiDraft` maps `AiDraftResponse.draft` into `header` + rows
+    (`rowsFromAiDraft`), fetches the matched client, seeds the AI-filled set. The
+    autosave effect then persists the DRAFT — no separate save path.*
+- [x] `7.2.3` (M) Visual indication of AI-filled fields so the user knows what to verify; nothing auto-sends or auto-saves
+  - *`filledFields` from the response → an `<AiFilledBadge>` ("AI", Sparkles) on
+    each populated `<FormField>` (client only when actually matched, currency,
+    dates, reference, notes) and above the line-item editor. `invoice-form`
+    clears a badge the moment the user edits that field. Apply only writes form
+    state — Save/Send are unchanged and still explicit.*
+- [x] `7.2.4` (S) Remaining-generations counter display
+  - *"{remaining} of {limit} AI drafts left this month · resets {date}" under the
+    box, seeded from `entitlements.ai` and refreshed from each response's `ai`
+    block so it decrements without an entitlements refetch.*
+- [x] `7.2.5` (S) Example prompts / placeholder text to teach the format
+  - *Placeholder = `AI_DRAFT_EXAMPLE_PROMPTS[0]` (`@invoice-saas/shared`); the
+    three examples render as click-to-fill links below the box.*
 
 ---
 
@@ -1006,7 +1065,12 @@ the state is non-obvious or has product-specific behavior.
 - [ ] `X.7.1` (M) Skeletons for: client list, product list, invoice library, template gallery (thumbnail skeletons), dashboard history feed, admin tenant list
 - [ ] `X.7.2` (M) Template editor loading: preview area shows a page-shaped skeleton at correct paper proportions, controls panel disabled until config loads
 - [ ] `X.7.3` (M) PDF generation loading: this is the slowest action in the app — dedicated progress state on Download/Send buttons, with a message if it exceeds ~3s, and a timeout path
-- [ ] `X.7.4` (S) AI generation loading: Motion-animated state on the AI panel, with the ability to cancel
+- [x] `X.7.4` (S) AI generation loading: Motion-animated state on the AI panel, with the ability to cancel
+  - *Built with 7.2.2: the `AnimatePresence` loading panel carries a Cancel button
+    that aborts the in-flight request via an `AbortController` on `apiFetch`'s
+    `signal`; the AbortError is filtered so a cancel shows no error. Pulse
+    animation collapses under `prefers-reduced-motion` (`useReducedMotion` +
+    `getTransition`).*
 
 **Empty**
 - [ ] `X.7.5` (M) "Nothing yet" empty states with CTAs: no clients, no products, no templates, no invoices, no history — each with its own copy and primary action

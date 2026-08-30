@@ -17,6 +17,7 @@
     "pdf:check": "tsx scripts/pdf-endpoint-check.ts",
     "history:check": "tsx scripts/history-check.ts",
     "entitlements:check": "tsx scripts/entitlements-check.ts",
+    "ai:check": "tsx scripts/ai-draft-check.ts",
     "stripe:setup": "tsx scripts/stripe-setup.ts",
     "stripe:check": "tsx scripts/stripe-check.ts",
     "grant": "tsx scripts/grant.ts",

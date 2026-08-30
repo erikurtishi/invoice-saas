@@ -711,6 +711,51 @@ handler; the rest of the app never touches Stripe.
 
 ---
 
+## D25 — AI drafting backend shape (Epic 7.1)
+
+**Decided:** the AI invoice-drafting backend ships as a **port + null adapter**
+plus all the surrounding logic; the concrete LLM provider (`7.1.1`) is deferred.
+
+- **`AiDrafter` port** (`apps/api/src/lib/ai/`), same "pluggable adapter, degrade
+  don't crash" shape as `Mailer` (D13), `Storage` (D15) and billing (D23). Only
+  implementation today is `NullDrafter` → `/ai/draft-invoice` returns **503**
+  (not a boot-throw: AI is a paid add-on, so unconfigured is a valid degraded
+  state, like billing with no Stripe key). Wiring Anthropic or OpenAI later is one
+  new class + a one-line swap in `lib/ai/index.ts`; `ai-draft-service.ts` never
+  changes. Provider choice is in **Still open**.
+- **Structured output** (`aiExtractionSchema`, `@invoice-saas/shared/ai.ts`)
+  carries **no computed money** — no subtotal/tax/grand-total/line-total fields
+  exist. The model returns raw stated numbers (`unitPriceAmount: 150`,
+  `quantity: 3`, `taxRatePercent: 18` only when the prompt states a rate); the API
+  converts to integer minor units / bp and every derived total stays with the
+  normal save path (guardrail `7.1.3`). Unknown keys are stripped, not rejected —
+  a model that bolts on `total` doesn't trigger a pointless retry and the API
+  never reads it.
+- **Relative dates are UTC** (`7.1.5`, user decision). The model returns
+  `dueInDays` (an integer offset), never an invented calendar date; the API
+  resolves it against **today in UTC**. There is no per-tenant timezone column —
+  revisit when a tenant TZ setting actually exists.
+- **Validation + one retry** (`7.1.2`): a reply that fails `aiExtractionSchema` is
+  re-requested once with a repair hint; a second failure is a graceful `502` with
+  **no usage charged** (`7.1.8`).
+- **Metering** (`7.1.6` / D6): `recordAiGeneration` runs only on a fully
+  successful, schema-valid generation. Provider failure / unusable output charge
+  nothing. The `403` when the monthly cap is spent happens before any model call.
+- **Cost logging** (`7.1.7`): a new `AiGenerationLog` table (migration
+  `20260831020000_add_ai_generation_log`), **one row per attempt** — successes,
+  `INVALID_OUTPUT` and `PROVIDER_ERROR` alike — so the admin view (`8.4.1`) sees
+  wasted spend. `costMicros` is integer USD-millionths (D17 style); an unpriced
+  model logs `0`, never crashes. Written by `ai-draft-service.ts` on the unscoped
+  client with an explicit `tenantId`, like the usage seam; in
+  `TENANT_SCOPED_MODELS` as a guard for admin reads.
+- **Client matching** (`7.1.4`): normalised Levenshtein (`lib/ai/fuzzy.ts`, no
+  dep) with legal-form stripping; ratio ≥ `AI_CLIENT_MATCH_THRESHOLD` (0.82) →
+  `matched`, else `new` with prefilled fields, else `none`.
+- Smoke: `npm run ai:check -w @invoice-saas/api` (fake `AiDrafter`, 40+
+  assertions). Frontend (Epic 7.2) is untouched by this.
+
+---
+
 ## Still open
 
 - **Nothing blocks `0.2.2` now.** Postgres is running locally and verified; the VPS
@@ -724,6 +769,11 @@ handler; the rest of the app never touches Stripe.
 - **Cloud file storage backend:** S3 / Cloudflare R2 / VPS volume (D15). The `Storage`
   port and `LocalDiskStorage` are in place; the concrete cloud store is picked when
   single-box hosting stops being enough (not before deploy).
+- **AI provider for drafting (`7.1.1`, D25):** Anthropic Claude vs OpenAI. The
+  `AiDrafter` port + `NullDrafter` are in place (so `/ai/*` 503s and `ai:check`
+  runs with a fake); a real adapter is one new class implementing `AiDrafter` +
+  a one-line swap in `lib/ai/index.ts`, plus an `*_API_KEY` / `AI_MODEL` env pair.
+  `lib/ai/cost.ts` already carries list prices for the likely models.
 - **Route restructure (deferred, user-raised in Epic 5.2):** move to a public
   marketing `/`, `/console/*` for the authed app, `/admin/*` for the admin center.
   Cross-cutting (every authed route, `App.tsx`, nav, guards, redirects, every

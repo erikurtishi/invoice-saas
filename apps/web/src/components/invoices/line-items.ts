@@ -1,4 +1,5 @@
 import {
+  type AiDraftLineItem,
   amountStringToMinor,
   bpToPercentString,
   type InvoiceLineItemInput,
@@ -57,6 +58,25 @@ export function rowFromProduct(product: ProductResponse): LineRow {
     taxInput: product.defaultTaxRateBp > 0 ? bpToPercentString(product.defaultTaxRateBp) : '',
     discountInput: '',
   };
+}
+
+/**
+ * AI-drafted line items → editor rows (backlog 7.2.2). The draft already carries
+ * integer minor units / basis points (the API did the conversion — guardrail
+ * 7.1.3), so this is the same integer→string mapping as `rowsFromInvoice`. No
+ * `productId`: an AI line is free-text until the user links it.
+ */
+export function rowsFromAiDraft(items: AiDraftLineItem[]): LineRow[] {
+  return items.map((li, index) => ({
+    key: `ai-${Date.now().toString(36)}-${index}`,
+    productId: null,
+    description: li.description,
+    unit: li.unit ?? '',
+    qtyInput: milliToQtyString(li.quantityMilli),
+    priceInput: li.unitPriceMinor > 0 ? minorToAmountString(li.unitPriceMinor) : '',
+    taxInput: li.taxRateBp > 0 ? bpToPercentString(li.taxRateBp) : '',
+    discountInput: '',
+  }));
 }
 
 /** `"2.5"` → `2500` milli-units. `null` for empty / negative / >3 decimals. */

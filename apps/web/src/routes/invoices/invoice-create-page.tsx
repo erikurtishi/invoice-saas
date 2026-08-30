@@ -89,6 +89,7 @@ export function InvoiceCreatePage() {
                   <InvoiceForm
                     profile={profile}
                     templates={templates.items}
+                    entitlements={entitlementsQuery.data}
                     onIssued={(invoice) => void navigate(`/invoices/${invoice.id}`)}
                     onCancel={() => void navigate('/invoices')}
                   />

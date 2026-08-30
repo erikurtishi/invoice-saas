@@ -28,6 +28,11 @@ const TENANT_SCOPED_MODELS: readonly Prisma.ModelName[] = [
   // `tenantId` (it also runs from auth/session contexts that have no `req.db`).
   'Subscription',
   'UsageCounter',
+  // AI drafting (Epic 7.1). Same arrangement as the billing rows — a guard against
+  // a stray `req.db.aiGenerationLog` read crossing tenants, while the sanctioned
+  // writer (`services/ai-draft-service.ts`) uses the unscoped client with an
+  // explicit `tenantId`. Admin cost reads (8.4.1) go through the scoped client.
+  'AiGenerationLog',
 ];
 
 /** Operations that filter rows via a `where` clause. */

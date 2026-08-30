@@ -59,6 +59,18 @@ enum PaperSize {
   A5
 }
 
+/// Outcome of one AI invoice-draft attempt (backlog 7.1.7). Mirrors
+/// `AI_GENERATION_STATUSES` in `@invoice-saas/shared` (`ai.ts`) — keep the two in
+/// step. One `AiGenerationLog` row per attempt regardless of outcome, so the
+/// admin cost view (8.4.1) sees failed spend too; only `SUCCESS` increments the
+/// tenant's monthly AI counter (7.1.6).
+enum AiGenerationStatus {
+  SUCCESS
+  INVALID_OUTPUT
+  PROVIDER_ERROR
+  RATE_LIMITED
+}
+
 /// One rendering engine, one type field that swaps a few labels/fields (spec §5,
 /// backlog 4.1.4). Mirrors `DOCUMENT_TYPES` in `@invoice-saas/shared`
 /// (`render/invoice-data.ts`) — keep the two in step.
@@ -181,6 +193,8 @@ model User {
 
   subscriptions Subscription[]
   usageCounter  UsageCounter?
+
+  aiGenerationLogs AiGenerationLog[]
 
   @@map("users")
 }
@@ -666,6 +680,52 @@ model UsageCounter {
   updatedAt DateTime @updatedAt
 
   @@map("usage_counters")
+}
+
+/// One AI invoice-draft attempt, for cost monitoring (backlog 7.1.7; the admin
+/// aggregate view is 8.4.1). Written by `services/ai-draft-service.ts` — the only
+/// writer — once per call to `/ai/draft-invoice` that reaches the model, whether
+/// it succeeded, returned unusable output, or the provider failed. A call the
+/// monthly cap rejected (7.1.6 / decision D6) never gets here.
+///
+/// `costMicros` is millionths of one major currency unit (integer, decision D17
+/// style — never a float). Provider pricing is quoted in USD; the admin view
+/// labels the unit. `0` when the model/usage is unknown (e.g. `PROVIDER_ERROR`
+/// before any tokens were spent) — an unpriced model logs cost 0, never crashes.
+///
+/// Owner column `tenantId` → `users.id` (decision D3). Listed in
+/// `TENANT_SCOPED_MODELS` so an admin read through `req.db` stays scoped; the
+/// service writes it on the unscoped client with an explicit `tenantId`, like the
+/// rest of the billing/usage seam.
+model AiGenerationLog {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// The model id the attempt used, or `"none"` when the drafter is unconfigured.
+  model  String
+  status AiGenerationStatus
+
+  /// Length of the tenant's prompt, characters. Cheap abuse signal for 8.4.4.
+  promptChars Int @default(0)
+
+  inputTokens  Int @default(0)
+  outputTokens Int @default(0)
+  costMicros   Int @default(0)
+
+  /// How many times the model output was re-requested after failing validation
+  /// (7.1.2). 0 on the happy path, 1 when the single retry was used.
+  retries Int @default(0)
+
+  /// Short machine reason for a non-`SUCCESS` row ("provider_unconfigured",
+  /// "schema_invalid", "provider_timeout"). Null for `SUCCESS`.
+  errorReason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([status, createdAt])
+  @@map("ai_generation_logs")
 }
 
 /// One row per issued refresh token (backlog 1.1.1). The raw token is a random
