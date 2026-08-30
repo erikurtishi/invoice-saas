@@ -192,6 +192,16 @@ occurring on a developer laptop before a single invoice template exists.
 **Decided:** Prisma (`prisma migrate` + Prisma Client) for schema, migrations and data
 access. Settles the `0.2.2` open question.
 
+**Version pinned to `~6.19.3`, not `latest`.** `npm install prisma` currently resolves to
+`8.0.0-rc.12` — a pre-release that ships an entirely different, agentic CLI (`prisma auth`,
+`prisma deploy`, `prisma orm`, no `migrate`/`generate`/`studio` as such). Prisma 7 stable
+also breaks the classic setup this document describes: `datasource { url = env(...) }` in
+`schema.prisma` is rejected outright, replaced by a driver adapter passed to the
+`PrismaClient` constructor plus a `prisma.config.ts` file. Both are real, current shifts in
+Prisma's architecture, not installation mistakes — 6.19.3 is the newest release still using
+the classic CLI and schema-level `url` this decision (and the code below) assumes. Revisit
+the pin once 7's driver-adapter model is designed in, not stumbled into mid-migration.
+
 **Why, against Knex specifically:**
 
 - **It enforces the tenant rule instead of relying on discipline.** CLAUDE.md requires

@@ -83,11 +83,26 @@ Goal: an empty but correctly wired app deployed to Hostinger.
     ready to deploy. **Partial**: the app runs against local Postgres now; the VPS itself
     isn't provisioned, so nothing about it is verified yet — that happens at `0.3.1`, see
     `puppeteer-hosting-runbook.md`.*
-- [ ] `0.2.2` (M) Migration tooling (Prisma or Knex); initial schema for Tenant, User
-- [~] `0.2.3` (S) Express/NestJS skeleton, health endpoint, request logging, CORS
-  - *Done: Express skeleton, `GET /health`, CORS locked to `WEB_ORIGIN`. **Missing: request logging.***
-- [ ] `0.2.4` (M) Multi-tenant strategy: every table carries `tenant_id`; a middleware injects the current tenant and every query is scoped to it. Write this once, centrally — never per-route.
-- [ ] `0.2.5` (S) Standard API error shape + validation middleware using shared Zod schemas
+- [x] `0.2.2` (M) Migration tooling (Prisma or Knex); initial schema for Tenant, User
+  - *Prisma 6.19.3 (`D11`; pinned below Prisma 7's driver-adapter rewrite — see the note
+    on `D11`). `User` schema per `D3`: one `users` table, business profile + credentials
+    together. First migration (`init_users`) applied and verified against local Postgres.*
+- [x] `0.2.3` (S) Express/NestJS skeleton, health endpoint, request logging, CORS
+  - *Express skeleton, `GET /health`, CORS locked to `WEB_ORIGIN`, `morgan` request logging
+    (`dev` format locally, `combined` in production; health checks excluded as noise).*
+- [x] `0.2.4` (M) Multi-tenant strategy: every table carries `tenant_id`; a middleware injects the current tenant and every query is scoped to it. Write this once, centrally — never per-route.
+  - *`db/tenant-scope.ts`: a Prisma client extension that injects `tenantId` into every
+    `where`/`data` for models listed in `TENANT_SCOPED_MODELS` — verified with a throwaway
+    model that cross-tenant reads see nothing and writes can't omit the scope, then reverted.
+    `middleware/tenant.ts` attaches a scoped client to `req.db`. The list is empty until
+    `2.1` adds `Client` — the mechanism exists ahead of its first caller, per the backlog's
+    own instruction not to retrofit this.*
+- [x] `0.2.5` (S) Standard API error shape + validation middleware using shared Zod schemas
+  - *`apiErrorBodySchema` in `@invoice-saas/shared`; `ApiError` class, `validate()` request
+    middleware, and a central `errorHandler` in `apps/api` covering `ApiError`, `ZodError`,
+    malformed JSON, and unknown errors (generic message in production, real one in dev).
+    Verified end-to-end: validation failure, thrown `ApiError`, and an unhandled error all
+    produced the right shape and status.*
 
 ## Epic 0.3 — Deployment
 - [ ] `0.3.1` (M) Hostinger deployment for Node backend (PM2 or equivalent process manager)

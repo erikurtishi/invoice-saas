@@ -1,0 +1,77 @@
+// Prisma schema — apps/api. See decision D11 (why Prisma over Knex) and D3 (why one
+// `users` table instead of a Tenant/User split) in docs/decisions.md.
+//
+// Scope of this file grows with the backlog: this first migration adds only `User`
+// (backlog 0.2.2). Client, Product, Template, Invoice, etc. arrive with their own phases.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+}
+
+enum PaperSize {
+  A4
+  LETTER
+  LEGAL
+  A5
+}
+
+enum Language {
+  EN
+  SQ
+  MK
+}
+
+/// One row per signed-up business (decision D3): login credentials and business
+/// profile live together, no separate `tenants` table. Every child table's owner
+/// column is still named `tenant_id` and references this table's `id` — see D3 for
+/// why, and 0.2.4 for the middleware/Prisma extension that enforces the scope.
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  passwordHash String
+
+  /// Null until the verification email is confirmed (1.1.2). Free-tier abuse
+  /// prevention (the lifetime-invoice limit) keys off this, not just the row existing.
+  emailVerifiedAt DateTime?
+
+  /// 8.1.1 — admin routes double-check this; it is never the only gate.
+  role UserRole @default(OWNER)
+
+  // --- Business profile (spec §3, backlog 1.2.2) ---
+  businessName String
+  logoUrl      String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  postalCode   String?
+  country      String?
+  /// VAT/tax registration number. Format varies by country (MK/AL/XK/US); validated
+  /// as a plain string, not parsed.
+  taxId        String?
+
+  /// ISO 4217 code, e.g. "EUR", "USD", "MKD". Per-invoice currency (4.2.7) can override
+  /// this default; it never changes a saved invoice's own currency.
+  defaultCurrency String @default("EUR")
+
+  /// Net payment terms in days (e.g. 14 = due 14 days after issue). Not free text, so
+  /// due-date calculation (4.1.1) is a plain date add, not a parser.
+  defaultPaymentTermsDays Int @default(14)
+
+  defaultPaperSize  PaperSize @default(A4)
+  preferredLanguage Language  @default(EN)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}

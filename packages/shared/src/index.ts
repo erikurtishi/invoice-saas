@@ -10,3 +10,5 @@
  */
 
 export const SHARED_PACKAGE_NAME = '@invoice-saas/shared' as const;
+
+export * from './api-error.js';
