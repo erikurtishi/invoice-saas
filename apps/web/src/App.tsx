@@ -16,6 +16,10 @@ import { ResetPasswordPage } from './routes/auth/reset-password';
 import { SignupPage } from './routes/auth/signup';
 import { VerifyEmailPage } from './routes/auth/verify-email';
 import { ClientsListPage } from './routes/clients/clients-list-page';
+import { InvoiceCreatePage } from './routes/invoices/invoice-create-page';
+import { InvoiceDetailPage } from './routes/invoices/invoice-detail-page';
+import { InvoiceEditPage } from './routes/invoices/invoice-edit-page';
+import { InvoicesListPage } from './routes/invoices/invoices-list-page';
 import { ProductsListPage } from './routes/products/products-list-page';
 import { TemplateEditorPage } from './routes/templates/template-editor-page';
 import { TemplatesListPage } from './routes/templates/templates-list-page';
@@ -150,7 +154,31 @@ function RoutedContent() {
                 path="/invoices"
                 element={
                   <PageTransition>
-                    <PlaceholderPage title="Invoices" phase="Phase 4" />
+                    <InvoicesListPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="/invoices/new"
+                element={
+                  <PageTransition>
+                    <InvoiceCreatePage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="/invoices/:id"
+                element={
+                  <PageTransition>
+                    <InvoiceDetailPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="/invoices/:id/edit"
+                element={
+                  <PageTransition>
+                    <InvoiceEditPage />
                   </PageTransition>
                 }
               />

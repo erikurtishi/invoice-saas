@@ -14,7 +14,14 @@ import { prisma } from './client.js';
  * first caller so Client (2.1), Product (2.2), Template (3.3) and Invoice (4.1)
  * inherit the scope for free instead of an ad-hoc check per route.
  */
-const TENANT_SCOPED_MODELS: readonly Prisma.ModelName[] = ['Client', 'Product', 'Template'];
+const TENANT_SCOPED_MODELS: readonly Prisma.ModelName[] = [
+  'Client',
+  'Product',
+  'Template',
+  'Invoice',
+  'InvoiceNumberSequence',
+  'InvoiceNumberingSetting',
+];
 
 /** Operations that filter rows via a `where` clause. */
 const WHERE_OPERATIONS = new Set([

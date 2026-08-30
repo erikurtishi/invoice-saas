@@ -513,42 +513,181 @@ The hardest and most differentiating part. Budget the most time here.
 # PHASE 4 — Invoices
 
 ## Epic 4.1 — Invoice data model
-- [ ] `4.1.1` (M) Schema: Invoice header (number, type, dates, currency, paper size, template ref, client ref, notes) + InvoiceLineItem (description, qty, unit, unit price, tax rate, discount)
-- [ ] `4.1.2` (M) **Money handling**: store all amounts as integer minor units. Never floats. Define and document rounding rules (line-level vs document-level tax rounding) once, apply everywhere.
-- [ ] `4.1.3` (M) Invoice numbering: sequential per tenant, configurable prefix/format, gapless. Proforma and quotes use a separate sequence and do not consume invoice numbers.
-- [ ] `4.1.4` (M) Document type field driving label/field differences: Invoice, Proforma, Quote/Estimate, Credit Note, Receipt
-- [ ] `4.1.5` (S) Credit note reference field linking to an original invoice
+- [x] `4.1.1` (M) Schema: Invoice header (number, type, dates, currency, paper size, template ref, client ref, notes) + InvoiceLineItem (description, qty, unit, unit price, tax rate, discount)
+  - *Prisma `Invoice` + `InvoiceLineItem` (+ `InvoiceNumberSequence`,
+    `InvoiceNumberingSetting`), migration `20260830184216_add_invoices`. `Invoice`
+    added to `TENANT_SCOPED_MODELS`; `InvoiceLineItem` is reached only via the
+    scoped parent (no `tenantId`, cascade-deleted). Live FKs to
+    client/template/product AND a name/address/line-text snapshot frozen at Save
+    (decision D20). Wire shapes in `packages/shared/src/invoice.ts`.*
+- [x] `4.1.2` (M) **Money handling**: store all amounts as integer minor units. Never floats. Define and document rounding rules (line-level vs document-level tax rounding) once, apply everywhere.
+  - *All `*Minor` / `*Bp` / `quantityMilli` integer columns (D17). Rounding policy
+    settled in decision D20: **line-level, half-up**, implemented once in
+    `packages/shared/src/render/invoice-math.ts` (`computeInvoiceTotals`) — the
+    one calculator the preview and the server both call; server is source of
+    truth (4.2.3).*
+- [x] `4.1.3` (M) Invoice numbering: sequential per tenant, configurable prefix/format, gapless. Proforma and quotes use a separate sequence and do not consume invoice numbers.
+  - *`apps/api/src/services/invoice-numbering.ts`. Five independent gapless
+    counters (one per document type, keyed `tenantId + documentType + year`).
+    `allocateInvoiceNumber` = atomic `INSERT … ON CONFLICT DO UPDATE … RETURNING`
+    (the sanctioned raw path from `tenant-scope.ts`, explicit `tenantId`), run in
+    the caller's txn. Per-type `InvoiceNumberingSetting` (format tokens
+    `{prefix}{YYYY}{YY}{seq}`, `{seq}` padding, tenant's yearly-reset toggle),
+    lazily seeded. Number assigned on first explicit Save, never on draft autosave
+    (`status` DRAFT→ISSUED). `npm run numbering:check -w @invoice-saas/api` proves
+    25 concurrent allocations stay gapless.*
+- [x] `4.1.4` (M) Document type field driving label/field differences: Invoice, Proforma, Quote/Estimate, Credit Note, Receipt
+  - *`DocumentType` enum (mirrors the renderer's `DOCUMENT_TYPES`).
+    `DOCUMENT_TYPE_FIELDS` in `shared/src/invoice.ts` is the single table of
+    per-type header/totals differences (secondary date = due / valid-until / none,
+    paid-date, payment-method, credit-note ref, closing amount line) — consumed by
+    the form (4.2.1), the shared validator, and `render/labels.ts`.*
+- [x] `4.1.5` (S) Credit note reference field linking to an original invoice
+  - *`Invoice.creditNoteRef` (free-text original number, always printed) +
+    `creditNoteOfId` self-relation (hard link when the original is one of this
+    tenant's). `invoiceInputSchema.superRefine` requires one of them when
+    `documentType === CREDIT_NOTE`.*
 
 ## Epic 4.2 — Invoice creation
-- [ ] `4.2.1` (L) Invoice form: client picker, document type selector, template picker, date fields, currency, paper size
-- [ ] `4.2.2` (L) Line item editor: add/remove/reorder rows, product picker or free text, qty/price/tax/discount, live-calculated totals
-- [ ] `4.2.3` (M) Totals panel: subtotal, per-rate tax breakdown, discounts, grand total — calculated **server-side as source of truth**, frontend calculation for display only
-- [ ] `4.2.4` (M) "Start from scratch" flow: design a new template inline while creating the invoice → on save, both the invoice **and** the reusable template are saved
-- [ ] `4.2.5` (M) Live preview panel alongside the form (same renderer)
-- [ ] `4.2.6` (S) Draft autosave while composing (before first explicit save)
-- [ ] `4.2.7` (M) Multi-currency per invoice, with correct symbol/format per locale
+- [x] `4.2.1` (L) Invoice form: client picker, document type selector, template picker, date fields, currency, paper size
+  - *`routes/invoices/invoice-create-page.tsx` (`/invoices/new`) → `components/
+    invoices/invoice-form.tsx`. Plain-state form (same pattern as the template
+    editor page), inline errors via `<FormField>`, `DOCUMENT_TYPE_FIELDS` drives
+    which header fields show per type. `client-picker.tsx` is a typeahead over
+    `/clients` with inline "add client" (reuses `<ClientFormDialog>`).
+    `POST/PATCH /invoices` + `POST /invoices/:id/finalize` in
+    `services/invoice-service.ts` / `routes/invoices.ts`.*
+- [x] `4.2.2` (L) Line item editor: add/remove/reorder rows, product picker or free text, qty/price/tax/discount, live-calculated totals
+  - *`components/invoices/line-items-editor.tsx` (+ pure row model/conversions in
+    `line-items.ts`). Add from `<ProductPicker>` or a blank row; reorder with
+    up/down; per-row live amount via the shared `computeLineItem`. Money binds to
+    decimal strings, converts through `money.ts` (D17). X.7.7 empty placeholder.*
+- [x] `4.2.3` (M) Totals panel: subtotal, per-rate tax breakdown, discounts, grand total — calculated **server-side as source of truth**, frontend calculation for display only
+  - *`components/invoices/totals-panel.tsx`. Server is authoritative:
+    `POST /invoices/calculate` (stateless) and every draft-save echo carry
+    `computeInvoiceTotals` output incl. the per-rate `taxLines`; the form computes
+    locally only to avoid a stale flash between saves (`syncing`).*
+- [x] `4.2.4` (M) "Start from scratch" flow: design a new template inline while creating the invoice → on save, both the invoice **and** the reusable template are saved
+  - *Template picker has a "Start from scratch…" option → embeds `<TemplateEditor>`
+    in a modal; its config travels in the payload as `newTemplate {name, config}`.
+    `finalizeInvoice` persists it via `createTemplate(db, …)` first, then links the
+    invoice — one request. `invoiceInputSchema` refuses `templateId` + `newTemplate`
+    together.*
+- [x] `4.2.5` (M) Live preview panel alongside the form (same renderer)
+  - *`components/invoices/invoice-preview-panel.tsx` builds an `InvoiceRenderData`
+    from the form value + profile + chosen client and renders `<InvoicePreview>` —
+    the same shared `renderInvoice` the PDF (4.3) will use. Split form|preview on
+    `lg`, preview sticky.*
+- [x] `4.2.6` (S) Draft autosave while composing (before first explicit save)
+  - *`features/invoices/use-invoice-draft.ts`: the form pushes its whole value to
+    `queueSave`; a 1.2s debounce `POST`s a `DRAFT` on the first real edit, `PATCH`es
+    after. Serialised writes + mid-save chase live in one `setTimeout` closure (no
+    setState-in-effect). `finalize()` is the first explicit Save → number + `ISSUED`
+    (decision D20). Never creates a row for a form the user only glanced at.*
+- [x] `4.2.7` (M) Multi-currency per invoice, with correct symbol/format per locale
+  - *`invoice.currency` (any ISO 4217, wider than the profile list) frozen on the
+    row; the renderer's `formatMoney` already does per-locale symbol/grouping via
+    `Intl`. Form currency select defaults from the profile; totals/preview reflect
+    the choice.*
 
 ## Epic 4.3 — Preview, download, send
-- [ ] `4.3.1` (L) Server-side PDF generation (Puppeteer) from the shared renderer; correct page size, embedded fonts, selectable text
-- [ ] `4.3.2` (M) PDF generation performance: browser instance pooling, timeout handling, queue if slow. This is your heaviest server operation — plan for it.
-- [ ] `4.3.3` (M) **Download** action: generates fresh PDF from current data, correct filename (`INV-2026-001_ClientName.pdf`)
-- [ ] `4.3.4` (M) **Send** action: transactional email provider integration (Resend/Postmark), PDF attached, localized email body
-- [ ] `4.3.5` (S) Send disabled with tooltip when client has no email; download always available
-- [ ] `4.3.6` (M) Email template design (the covering email, in the tenant's language)
-- [ ] `4.3.7` (S) Email delivery failure handling and user feedback
+- [x] `4.3.1` (L) Server-side PDF generation (Puppeteer) from the shared renderer; correct page size, embedded fonts, selectable text
+  - *`services/pdf-service.ts` → shared `renderInvoice` (`media:'print'`) →
+    `lib/pdf/browser-pool.ts`. `preferCSSPageSize` honours the renderer's `@page`;
+    fonts/logo served from disk via request interception (no real network);
+    `document.fonts.ready` awaited before `page.pdf()`. `npm run pdf:check
+    -w @invoice-saas/api` parses the output: A4 = 595×842pt, text selectable,
+    Cyrillic survives.*
+- [x] `4.3.2` (M) PDF generation performance: browser instance pooling, timeout handling, queue if slow. This is your heaviest server operation — plan for it.
+  - *`lib/pdf/browser-pool.ts`: one lazily-launched Chrome for the process,
+    auto-relaunch on `disconnected`; a FIFO semaphore caps concurrent pages at 2,
+    the rest queue; 20s `PdfTimeoutError` via `Promise.race`. `closeBrowserPool()`
+    for shutdown/tests.*
+- [x] `4.3.3` (M) **Download** action: generates fresh PDF from current data, correct filename (`INV-2026-001_ClientName.pdf`)
+  - *`POST /invoices/:id/pdf` streams `application/pdf` with `Content-Disposition`
+    (plain + `filename*=UTF-8''`) and `Cache-Control: no-store` — always
+    regenerated, never cached (spec §6). Filename from shared `invoicePdfFilename`
+    (`INV-2026-0001_ClientName.pdf`). Body `{ draft }` renders unsaved edits
+    (4.4.2); `{ draft: null }` the saved row. Web: `apiFetchBlob` (same
+    auth/refresh as `apiFetch`) → `useDownloadInvoicePdf` triggers an
+    `<a download>`. Draft invoice → 409.*
+- [x] `4.3.4` (M) **Send** action: transactional email provider integration (Resend/Postmark), PDF attached, localized email body
+  - *`POST /invoices/:id/send` → `sendInvoice` renders the PDF and calls
+    `mailer.send({ …, attachments:[pdf] })`. The `Mailer` port now carries
+    `attachments`; transport stays `ConsoleMailer` (writes the PDF to a temp file,
+    logs it) — the concrete provider is still the one-line swap in
+    `mail/index.ts` (decisions.md open item). Recipient is the client's saved
+    email (spec §91).*
+- [x] `4.3.5` (S) Send disabled with tooltip when client has no email; download always available
+  - *`<InvoiceActions>`: Send `disabled` + a `<Tooltip>` (wrapper `<span>` so the
+    disabled button still gets hover) when `invoice.client.email` is null; server
+    also 422s. Download has no such gate.*
+- [x] `4.3.6` (M) Email template design (the covering email, in the tenant's language)
+  - *`mail/invoice-email.ts` — trilingual EN/SQ/MK covering email (subject + text +
+    minimal HTML), keyed off `invoice.language` (spec §10), document-type word from
+    `renderLabels`, amount via shared `formatMoney`.*
+- [x] `4.3.7` (S) Email delivery failure handling and user feedback
+  - *Mailer failure → 502 with an explicit "PDF was generated but the email could
+    not be sent" message; `<InvoiceActions>` renders that as a distinct panel with
+    "Download instead" + "Try again" (X.7.15), separate from the send-success panel
+    that shows recipient + timestamp (X.7.10). Slow (>3s) note on both buttons
+    (X.7.3); a download failure never implies success (X.7.14).*
 
 ## Epic 4.4 — Editing, saving, duplicating
-- [ ] `4.4.1` (M) Open saved invoice in edit mode with all data loaded
-- [ ] `4.4.2` (M) **Save / Cancel semantics**: Save explicitly persists; Cancel discards and reverts; Download/Send from an edit screen use current edited data **without** auto-saving
-- [ ] `4.4.3` (S) Unsaved-changes warning on navigate away
-- [ ] `4.4.4` (M) **Duplicate**: copies client, line items, template, type, paper size into a new invoice with new ID, new number, blank history
-- [ ] `4.4.5` (S) Delete invoice with confirmation
+- [x] `4.4.1` (M) Open saved invoice in edit mode with all data loaded
+  - *`/invoices/:id/edit` → `routes/invoices/invoice-edit-page.tsx` →
+    `components/invoices/invoice-edit-form.tsx`. Hydrates from the `InvoiceResponse`
+    via `invoice-form-state.ts` (`headerFromInvoice` / `rowsFromInvoice` /
+    `syntheticClientFromInvoice` — the last builds a stand-in `ClientResponse` from
+    the frozen snapshot so a deleted client still shows). Form body
+    (`<InvoiceFormFields>`) is shared with the create flow.*
+- [x] `4.4.2` (M) **Save / Cancel semantics**: Save explicitly persists; Cancel discards and reverts; Download/Send from an edit screen use current edited data **without** auto-saving
+  - *Edit form has no autosave. Save → `PATCH /invoices/:id` (`saveInvoice`) which
+    keeps `number`/`status`/`issuedAt`, re-snapshots parties, recomputes totals;
+    **document type is locked** after issue (server 422s a change — user's choice).
+    Cancel → confirm + navigate back, nothing written. Download/Send →
+    `<InvoiceActions draft={payload}>` POSTs `{ draft }` to `/pdf` and `/send`;
+    `buildPreviewResponse` renders those unsaved edits as this invoice (keeps its
+    number) without persisting.*
+- [x] `4.4.3` (S) Unsaved-changes warning on navigate away
+  - *`hooks/use-before-unload.ts` — `beforeunload` prompt while `dirty` (baseline
+    = `JSON.stringify(payload)` at open). In-app nav is covered by the Cancel
+    confirm dialog; a full router blocker needs a data router this app doesn't use.*
+- [x] `4.4.4` (M) **Duplicate**: copies client, line items, template, type, paper size into a new invoice with new ID, new number, blank history
+  - *`POST /invoices/:id/duplicate` → `duplicateInvoice` maps the source row to an
+    `InvoiceInput` and calls `createDraft` — new id, `DRAFT`, no number, parties
+    re-snapshotted from current data. A since-deleted client is dropped rather than
+    failing. Web: `<InvoiceRecordActions>` → opens the copy at `/invoices/:id/edit`.*
+- [x] `4.4.5` (S) Delete invoice with confirmation
+  - *`DELETE /invoices/:id` → soft delete (D4); the number stays consumed (never
+    reused). Web: `<InvoiceRecordActions>` `<ConfirmDialog>` → navigate to
+    `/invoices` on success.*
 
 ## Epic 4.5 — Invoice library
-- [ ] `4.5.1` (M) List page: search by client/number, filter by type/date range, sort, pagination
-- [ ] `4.5.2` (M) Row actions: open, duplicate, download, delete
-- [ ] `4.5.3` (S) Empty state with clear CTA
-- [ ] `4.5.4` (M) **CSV export** of the invoice list (filtered set), with all key fields for the user's bookkeeping
+- [x] `4.5.1` (M) List page: search by client/number, filter by type/date range, sort, pagination
+  - *`GET /invoices` (`invoiceListQuerySchema`) → `listInvoices`. Filters: `search`
+    (number OR snapshot `clientName`), `status` (all/issued/**draft**, default
+    `issued` — Epic 4.5 decision: status filter, default issued), `documentType`,
+    `dateFrom`/`dateTo` on `issueDate`, `sort` (newest/oldest/client/total ±),
+    page/pageSize. Rows are scalar columns only (stored `grandTotalMinor`, no line
+    items). Web: `routes/invoices/invoices-list-page.tsx` — same `<QueryBoundary>`
+    + `<SkeletonTable>` shape as the client/product lists, `keepPreviousData`.*
+- [x] `4.5.2` (M) Row actions: open, duplicate, download, delete
+  - *`<DropdownMenu>` per row → open (`/invoices/:id`), duplicate
+    (`useDuplicateInvoice` → opens the copy at `/edit`), download (issued only,
+    `useDownloadInvoicePdf`), delete (`<ConfirmDialog>` → `useDeleteInvoice`,
+    steps back a page if it emptied the last one).*
+- [x] `4.5.3` (S) Empty state with clear CTA
+  - *`nothing-yet` (no filters, 0 total) → "Create your first invoice" → `/invoices/new`;
+    `nothing-found` (any filter active) → "No invoices match" + Clear filters.*
+- [x] `4.5.4` (M) **CSV export** of the invoice list (filtered set), with all key fields for the user's bookkeeping
+  - *`GET /invoices/export.csv` (registered before `/:id`) → `exportInvoicesCsv`:
+    same filters, no pagination. Number, type, status, dates, client name/email/
+    tax-id, currency, subtotal/discount/tax/total as **decimal strings** for
+    bookkeeping; UTF-8 BOM + CRLF so Excel opens Cyrillic/Albanian correctly;
+    fields with `,"`↵ quoted. Web: `apiFetchBlob(..., 'text/csv')` →
+    `useExportInvoicesCsv` triggers the download; "Export CSV" button uses the
+    current filter set. Verified live: BOM present, `"Акме, Ко"` quoted.*
 
 ---
 

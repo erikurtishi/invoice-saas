@@ -6,6 +6,12 @@
  * `mail/index.ts`, with zero changes at any call site.
  */
 
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
 export interface MailMessage {
   to: string;
   subject: string;
@@ -13,6 +19,9 @@ export interface MailMessage {
   text: string;
   /** Optional HTML body; providers fall back to `text` when absent. */
   html?: string;
+  /** File attachments (backlog 4.3.4 — the invoice PDF rides along with the
+   * covering email). Every real provider maps these onto its own field. */
+  attachments?: MailAttachment[];
 }
 
 export interface Mailer {

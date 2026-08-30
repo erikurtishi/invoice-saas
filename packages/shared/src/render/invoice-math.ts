@@ -1,16 +1,19 @@
 import type { DocumentType, RenderLineItem, RenderTaxLine, RenderTotals } from './invoice-data.js';
 
 /**
- * The invoice totals calculator (backlog 3.1.2 needs computed data to render;
- * 4.1.2 will formalise the rounding *policy* and make the server the source of
- * truth). This is the **one** implementation — the preview and, later, the server
- * both call it, so a "looks fine, prints wrong" total mismatch can't happen
- * (CLAUDE.md: one shared function).
+ * The invoice totals calculator. This is the **one** implementation — the live
+ * preview and the server (source of truth, 4.2.3) both call it, so a "looks fine,
+ * prints wrong" total mismatch can't happen (CLAUDE.md: one shared function).
  *
- * All integer minor units (decision D17). Rounding here is **line-level, half-up**:
- * each line's discount and tax are rounded to the minor unit, then summed. This is
- * the common, defensible choice; if 4.1.2 picks document-level rounding instead,
- * it changes only this file.
+ * All integer minor units (decision D17). **Rounding policy is settled by decision
+ * D20 (backlog 4.1.2): line-level, half-up.** Per line, in order:
+ *   lineSubtotal = round(qty × unitPrice)
+ *   lineDiscount = round(lineSubtotal × discountBp / 10000)
+ *   lineTax      = round((lineSubtotal − lineDiscount) × taxRateBp / 10000)
+ * Document totals are integer sums of those already-rounded line amounts; the
+ * per-rate tax summary sums line tax within each rate. Document-level rounding was
+ * rejected (D20) — it breaks `printed line tax == base × rate`. Any future change
+ * to the policy changes only this file.
  */
 
 /** A line as entered on the invoice form — before any amount is computed. */

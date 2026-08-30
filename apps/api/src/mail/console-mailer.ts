@@ -1,3 +1,7 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { writeFileSync } from 'node:fs';
+
 import type { Mailer, MailMessage } from './mailer.js';
 
 /**
@@ -12,6 +16,19 @@ import type { Mailer, MailMessage } from './mailer.js';
 export class ConsoleMailer implements Mailer {
   send(message: MailMessage): Promise<void> {
     const line = '─'.repeat(72);
+
+    // Attachments (backlog 4.3.4) are written to a temp file so the generated PDF
+    // is actually inspectable while developing without a provider account.
+    const attachmentLines = (message.attachments ?? []).map((attachment) => {
+      const path = join(tmpdir(), `mock-email-${Date.now()}-${attachment.filename}`);
+      try {
+        writeFileSync(path, attachment.content);
+        return `Attachment: ${attachment.filename} (${attachment.contentType}, ${attachment.content.length} bytes) → ${path}`;
+      } catch {
+        return `Attachment: ${attachment.filename} (${attachment.contentType}, ${attachment.content.length} bytes)`;
+      }
+    });
+
     console.info(
       [
         '',
@@ -19,6 +36,7 @@ export class ConsoleMailer implements Mailer {
         `📧  MOCK EMAIL (ConsoleMailer — not actually sent)`,
         `To:      ${message.to}`,
         `Subject: ${message.subject}`,
+        ...attachmentLines,
         line,
         message.text,
         line,

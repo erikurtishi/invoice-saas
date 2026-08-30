@@ -87,7 +87,17 @@ async function toHttpError(res: Response): Promise<HttpError> {
   return new HttpError(res.status, message, fields);
 }
 
-export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+/**
+ * The shared request core: attaches the bearer token, sends with credentials,
+ * transparently rotates the token once on a 401 and replays. Returns the raw
+ * `Response` (still checked for `res.ok`) so both the JSON helper and the binary
+ * helper below get identical auth handling.
+ */
+async function apiRequest(
+  path: string,
+  options: ApiFetchOptions,
+  accept: string,
+): Promise<Response> {
   const {
     method = 'GET',
     body,
@@ -97,7 +107,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   } = options;
 
   const send = (): Promise<Response> => {
-    const headers: Record<string, string> = { Accept: 'application/json' };
+    const headers: Record<string, string> = { Accept: accept };
     const token = getAccessToken();
     if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -131,7 +141,30 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   }
 
   if (!res.ok) throw await toHttpError(res);
-  if (res.status === 204) return undefined as T;
+  return res;
+}
 
+export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+  const res = await apiRequest(path, options, 'application/json');
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/**
+ * Fetch a binary response (the invoice PDF `4.3.3`, the library CSV `4.5.4`) with
+ * the same auth / refresh handling as `apiFetch`. Returns the blob plus the
+ * filename the server put in `Content-Disposition`, so the caller can trigger a
+ * correctly-named download without hard-coding it.
+ */
+export async function apiFetchBlob(
+  path: string,
+  options: ApiFetchOptions = {},
+  accept = 'application/octet-stream',
+): Promise<{ blob: Blob; filename: string | null }> {
+  const res = await apiRequest(path, options, accept);
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  const plain = /filename="?([^";]+)"?/i.exec(disposition);
+  const filename = utf8 ? decodeURIComponent(utf8[1]!) : (plain?.[1] ?? null);
+  return { blob: await res.blob(), filename };
 }

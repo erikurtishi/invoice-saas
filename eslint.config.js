@@ -96,6 +96,18 @@ export default defineConfig([
     },
   },
 
+  // TypeScript check scripts (run with `tsx`, e.g. numbering-check.ts) live outside
+  // apps/api's `src` rootDir, so they are in no tsconfig. Lint them untyped rather
+  // than distort the build's file layout to include them.
+  {
+    files: ['apps/api/scripts/**/*.ts'],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      parserOptions: { projectService: false, project: false },
+      globals: globals.node,
+    },
+  },
+
   // Must stay last: turns off every stylistic rule Prettier owns.
   prettier,
 ]);

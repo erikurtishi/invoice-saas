@@ -460,6 +460,69 @@ safer than either scattering the check or leaving the `3.3.6` API unguarded
 - The web still uses `AuthUser.tier` for display/gating hints only (D14) — the
   server never trusts the client's view.
 
+## D20 — Invoice data model: snapshot parties, per-type gapless sequences, line-level rounding
+
+**Decided (settles the open choices in `4.1.1`–`4.1.5` that the spec leaves
+implicit):**
+
+**Party & line snapshot.** `Invoice` keeps live foreign keys
+(`clientId` / `templateId` / `lineItems[].productId` — all nullable, `onDelete:
+Restrict`, and they always resolve because those tables are soft-deleted, D4) **and**
+copies the printed name / address / email / tax-id of both parties, plus every
+line's text, onto the row at Save time (`businessName`, `clientAddress`,
+`InvoiceLineItem.description`, …). Editing a Client, Product or the business
+profile later never rewrites a document that is already issued — the legal record
+is frozen. Duplicate (`4.4.4`) copies the snapshot. `X.7.22` (broken reference in
+the UI) still applies to the *live* FK, e.g. for "open the client behind this
+invoice".
+
+**One sequence per document type.** Five independent gapless counters
+(`InvoiceNumberSequence`, keyed `tenantId + documentType + year`): INVOICE,
+PROFORMA, QUOTE, CREDIT_NOTE, RECEIPT. `4.1.3` only requires that proforma and
+quotes not consume invoice numbers; giving *every* type its own counter is the
+clean generalisation and lets each carry its own prefix (`INV-`, `PRO-`, `QUO-`,
+`CN-`, `REC-`). Format, `{seq}` padding and the **yearly-reset toggle** are the
+tenant's choice per type (`InvoiceNumberingSetting`, lazily seeded from
+`DEFAULT_NUMBER_FORMATS`; default `resetYearly: true`, the MK/AL/XK + EU norm).
+`year = 0` rows are the continuous-sequence bucket; `Invoice.numberYear` is null
+then.
+
+**Number assigned on first explicit Save.** A `DRAFT` invoice (the `4.2.6`
+autosave buffer) has `number = null`; `status` flips to `ISSUED` and
+`allocateInvoiceNumber` runs on the first real Save, inside the same transaction
+as the invoice write so an abandoned draft leaves no gap. `InvoiceStatus` is
+**not** payment state — paid/unpaid/overdue stay out of scope (spec §6).
+
+**Rounding policy (`4.1.2`, formalising the D18 placeholder).** **Line-level,
+half-up.** Each line: `subtotal = round(qty × unitPrice)`, then
+`discount = round(subtotal × discountBp / 10000)`, then
+`tax = round((subtotal − discount) × taxRateBp / 10000)`. Document totals are
+plain integer sums of the already-rounded line amounts; the per-rate tax summary
+sums line tax within each rate. This is the single implementation in
+`packages/shared/src/render/invoice-math.ts` (`computeInvoiceTotals`) that both
+the live preview and the server call — the server result is authoritative
+(`4.2.3`). Document-level rounding (tax computed once on summed bases) was
+rejected: it makes a line's printed tax not equal `base × rate`, which invoice
+recipients query.
+
+**Allocation bypasses the tenant-scope extension by design.**
+`allocateInvoiceNumber` is the raw `INSERT … ON CONFLICT DO UPDATE … RETURNING`
+that `db/tenant-scope.ts` anticipates; it carries an explicit `tenantId` and takes
+the caller's transaction client.
+
+**Consequences:**
+- `packages/shared/src/invoice.ts` holds the wire shapes; `DOCUMENT_TYPE_FIELDS`
+  there is the one table of per-type header/totals differences (`4.1.4`), shared
+  by the form (`4.2.1`) and the validator.
+- `InvoiceLineItem` carries no `tenantId` and is **not** in
+  `TENANT_SCOPED_MODELS` — it is only ever reached through a tenant-scoped
+  `Invoice` query, and is cascade-deleted with its parent (the parent is
+  soft-deleted).
+- Epic 4.2 builds the create/save service and the `POST /invoices` route on this
+  model; Epic 4.5 the library list/query; a settings surface for
+  `InvoiceNumberingSetting` is service-ready but unrouted until a consumer needs
+  it.
+
 ---
 
 ## Still open
@@ -468,7 +531,10 @@ safer than either scattering the check or leaving the `3.3.6` API unguarded
   checks from the earlier managed-hosting revision no longer apply — a VPS has root, so
   Postgres and Chrome are both just installed, not discovered.
 - **Transactional email provider:** Resend vs Postmark vs Hostinger SMTP (`4.3.4`).
-  The `Mailer` port (D13) is in place; only the concrete transport is undecided.
+  The `Mailer` port (D13) is in place and now carries PDF `attachments`; `4.3.4`
+  Send is wired against it with `ConsoleMailer` (writes the PDF to a temp file
+  locally). Only the concrete transport is undecided — a single new `Mailer`
+  class + a one-line swap in `mail/index.ts`.
 - **Cloud file storage backend:** S3 / Cloudflare R2 / VPS volume (D15). The `Storage`
   port and `LocalDiskStorage` are in place; the concrete cloud store is picked when
   single-box hosting stops being enough (not before deploy).

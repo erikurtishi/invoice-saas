@@ -37,6 +37,26 @@ enum PaperSize {
   A5
 }
 
+/// One rendering engine, one type field that swaps a few labels/fields (spec §5,
+/// backlog 4.1.4). Mirrors `DOCUMENT_TYPES` in `@invoice-saas/shared`
+/// (`render/invoice-data.ts`) — keep the two in step.
+enum DocumentType {
+  INVOICE
+  PROFORMA
+  QUOTE
+  CREDIT_NOTE
+  RECEIPT
+}
+
+/// NOT payment status — paid/unpaid/overdue are explicitly out of scope (spec §6).
+/// This is only draft-vs-saved: `DRAFT` is the compose-time autosave buffer
+/// (4.2.6) and carries no `number`; `ISSUED` is set by the first explicit Save,
+/// which allocates the gapless number (4.1.3).
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+}
+
 /// How a `Client`'s address is held (backlog 2.1.3). `STRUCTURED` uses the
 /// line1/line2/city/postalCode/country columns; `FREE_TEXT` uses `addressText`.
 enum ClientAddressMode {
@@ -112,6 +132,10 @@ model User {
   clients       Client[]
   products      Product[]
   templates     Template[]
+  invoices      Invoice[]
+
+  invoiceNumberSequences   InvoiceNumberSequence[]
+  invoiceNumberingSettings InvoiceNumberingSetting[]
 
   @@map("users")
 }
@@ -159,6 +183,8 @@ model Client {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  invoices Invoice[]
+
   @@index([tenantId, deletedAt])
   @@index([tenantId, name])
   @@map("clients")
@@ -195,6 +221,8 @@ model Product {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  invoiceLineItems InvoiceLineItem[]
+
   @@index([tenantId, deletedAt])
   @@index([tenantId, name])
   @@map("products")
@@ -226,8 +254,225 @@ model Template {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  invoices Invoice[]
+
   @@index([tenantId, deletedAt])
   @@map("templates")
+}
+
+/// A tenant's invoice / proforma / quote / credit note / receipt (spec §5–6,
+/// backlog Epic 4.1). One model, one `documentType` that swaps a few
+/// labels/fields — never a table per type.
+///
+/// Owner column `tenantId` → `users.id` (decision D3); scope injected by the
+/// extension in `db/tenant-scope.ts` (`Invoice` is in `TENANT_SCOPED_MODELS`).
+/// Soft-deleted (decision D4).
+///
+/// **Party & line snapshot (decision D20):** `clientId` / `templateId` /
+/// `lineItems[].productId` are kept as live references (the rows are soft-deleted,
+/// never removed, so they always resolve), but the printed name/address/tax-id of
+/// both parties and every line's text are ALSO copied onto the row at Save time.
+/// Editing a Client, Product or the business profile later never rewrites a
+/// historical document.
+///
+/// **Money (decision D17):** every amount is integer minor units, every rate is
+/// basis points. The `*Minor` totals are recomputed on every Save by the one
+/// shared calculator (`computeInvoiceTotals`, `@invoice-saas/shared`) — the server
+/// is the source of truth (4.2.3); the form's numbers are display-only.
+model Invoice {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Draft-vs-saved only — see the `InvoiceStatus` note. Not payment status.
+  status       InvoiceStatus @default(DRAFT)
+  documentType DocumentType  @default(INVOICE)
+
+  /// Allocated from the per-`(tenantId, documentType, numberYear)` gapless
+  /// sequence on the first explicit Save (4.1.3); null while `DRAFT`.
+  /// `numberSeq` is the raw integer the counter handed out; `number` is that
+  /// integer rendered through the tenant's format string (`InvoiceNumberingSetting`).
+  number    String?
+  numberSeq Int?
+  /// The calendar year the counter counted in, when the sequence resets yearly
+  /// (4.1.3). Null for a continuous sequence or a still-draft invoice.
+  numberYear Int?
+
+  /// Printed-label language (spec §10), independent of the app UI language.
+  language  Language  @default(EN)
+  /// ISO 4217. May differ from the tenant/client default (4.2.7); frozen once the
+  /// invoice is saved — changing the tenant default never rewrites it.
+  currency  String    @default("EUR")
+  paperSize PaperSize @default(A4)
+
+  /// Live references — always resolve (soft delete, D4). Nullable so a `DRAFT`
+  /// autosave (4.2.6) and the "start from scratch" flow (4.2.4, template created
+  /// in the same Save) are representable. `Restrict` never fires because the rows
+  /// are never hard-deleted.
+  clientId   String?
+  client     Client?   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  templateId String?
+  template   Template? @relation(fields: [templateId], references: [id], onDelete: Restrict)
+
+  // --- Snapshot of the issuing business at Save time (spec §3 party block) ---
+  businessName    String?
+  /// Newline-joined address block, printed verbatim.
+  businessAddress String?
+  businessEmail   String?
+  businessPhone   String?
+  businessTaxId   String?
+  businessLogoUrl String?
+
+  // --- Snapshot of the billed client at Save time ---
+  clientName    String?
+  clientAddress String?
+  clientEmail   String?
+  clientTaxId   String?
+
+  issueDate DateTime  @db.Date
+  /// Invoice/Proforma → payment due; Quote → "valid until"; Credit note/Receipt → null.
+  dueDate   DateTime? @db.Date
+  /// Receipt only (spec §5).
+  paidDate      DateTime? @db.Date
+  paymentMethod String?
+
+  /// Credit note only (4.1.5). `creditNoteRef` is the free-text original document
+  /// number (always printed); `creditNoteOfId` additionally hard-links the
+  /// original Invoice row when it is one of this tenant's.
+  creditNoteRef  String?
+  creditNoteOfId String?
+  creditNoteOf   Invoice?  @relation("CreditNoteChain", fields: [creditNoteOfId], references: [id], onDelete: Restrict)
+  creditNotes    Invoice[] @relation("CreditNoteChain")
+
+  /// Buyer reference / PO number (render `reference`).
+  reference      String?
+  notes          String?
+  footerText     String?
+  signatureLabel String?
+
+  // --- Computed totals, integer minor units (D17); recomputed every Save. ---
+  subtotalMinor      Int @default(0)
+  discountTotalMinor Int @default(0)
+  taxTotalMinor      Int @default(0)
+  grandTotalMinor    Int @default(0)
+  /// What the document asks for now — equals `grandTotalMinor` for a plain
+  /// invoice, `0` for a receipt.
+  amountDueMinor     Int @default(0)
+
+  lineItems InvoiceLineItem[]
+
+  /// Set by the first explicit Save (alongside `number`). Distinct from
+  /// `createdAt`, which is when the row was first autosaved as a draft.
+  issuedAt  DateTime?
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([tenantId, documentType, numberYear, numberSeq])
+  @@index([tenantId, deletedAt])
+  @@index([tenantId, documentType, deletedAt])
+  @@index([tenantId, clientId])
+  @@index([tenantId, issueDate])
+  @@map("invoices")
+}
+
+/// One row of an invoice (backlog 4.1.1). Reached only through its parent
+/// `Invoice` relation, so it carries no `tenantId` and is NOT in
+/// `TENANT_SCOPED_MODELS` — the tenant filter comes from the scoped `Invoice`
+/// query that loads it. Cascade-deleted with the invoice (hard delete of the
+/// child rows is fine; the invoice itself is soft-deleted).
+///
+/// `quantityMilli` is milli-units (1000 = "1", 2500 = "2.5") so a fractional
+/// quantity stays exact without a float. All money/rate columns are integers (D17);
+/// the `line*Minor` columns are recomputed on every Save by `computeLineItem`.
+model InvoiceLineItem {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  /// 0-based render order; the form reorders rows (4.2.2).
+  position Int
+
+  /// Set when the row was prefilled from a Product (still resolves after a soft
+  /// delete); null for a free-text row. The text below is the snapshot either way.
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  description    String
+  quantityMilli  Int
+  unit           String?
+  unitPriceMinor Int
+  /// Basis points (1800 = 18%).
+  taxRateBp  Int @default(0)
+  /// Per-line discount, basis points of the line subtotal.
+  discountBp Int @default(0)
+
+  lineSubtotalMinor Int @default(0)
+  lineDiscountMinor Int @default(0)
+  lineTaxMinor      Int @default(0)
+  lineTotalMinor    Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([invoiceId, position])
+  @@map("invoice_line_items")
+}
+
+/// The gapless counter behind invoice numbering (backlog 4.1.3). One row per
+/// `(tenantId, documentType, year)` — the five document types each have their own
+/// sequence (decision D20), and when `InvoiceNumberingSetting.resetYearly` is on
+/// there is one row per calendar year (`year` = 0 for a continuous sequence).
+///
+/// `nextValue` is the last number handed out. Allocation is a single atomic
+/// `INSERT … ON CONFLICT DO UPDATE … RETURNING` in `services/invoice-numbering.ts`
+/// — the one sanctioned raw-SQL path called out in `db/tenant-scope.ts`, and it
+/// carries its own explicit `tenantId` predicate. `Invoice` is in
+/// `TENANT_SCOPED_MODELS` too, so ordinary Prisma reads of this table are still
+/// tenant-scoped.
+model InvoiceNumberSequence {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  documentType DocumentType
+  /// Calendar year for a yearly-reset sequence; `0` for a continuous one.
+  year         Int          @default(0)
+
+  /// Last number allocated. Next document gets `nextValue + 1`.
+  nextValue Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, documentType, year])
+  @@map("invoice_number_sequences")
+}
+
+/// Per-tenant, per-document-type numbering configuration (backlog 4.1.3:
+/// "configurable prefix/format"). Lazily seeded with a sensible default the first
+/// time a tenant issues a document of that type (see `invoice-numbering.ts`).
+///
+/// `format` is a token string — `{prefix}`, `{YYYY}`, `{YY}`, `{seq}` — where
+/// `{seq}` is left-padded to `seqPadding` digits. `resetYearly` is the tenant's
+/// choice (4.1.3): when true the counter restarts at 1 each January and the year
+/// tokens reflect the document's issue year; when false the counter is continuous.
+model InvoiceNumberingSetting {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  documentType DocumentType
+
+  format      String
+  seqPadding  Int     @default(4)
+  resetYearly Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, documentType])
+  @@map("invoice_numbering_settings")
 }
 
 /// One row per issued refresh token (backlog 1.1.1). The raw token is a random

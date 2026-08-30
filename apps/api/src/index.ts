@@ -10,6 +10,7 @@ import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { authRouter } from './routes/auth.js';
 import { clientsRouter } from './routes/clients.js';
+import { invoicesRouter } from './routes/invoices.js';
 import { onboardingRouter } from './routes/onboarding.js';
 import { productsRouter } from './routes/products.js';
 import { profileRouter } from './routes/profile.js';
@@ -69,6 +70,7 @@ app.use('/onboarding', onboardingRouter);
 app.use('/clients', clientsRouter);
 app.use('/products', productsRouter);
 app.use('/templates', templatesRouter);
+app.use('/invoices', invoicesRouter);
 
 // Route modules are mounted above this line. Anything unmatched falls through to
 // these two — order matters, both must stay last (backlog 0.2.3, 0.2.5).
