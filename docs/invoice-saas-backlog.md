@@ -79,10 +79,10 @@ Goal: an empty but correctly wired app deployed to Hostinger.
 
 ## Epic 0.2 — Database & backend skeleton
 - [~] `0.2.1` (M) Choose Hostinger plan; VPS strongly preferred → Postgres. Shared hosting → MySQL. Document the decision.
-  - *Decided and documented (`D1` hosting, `D2` database). **Partial**: hosting is the managed
-    deploy-from-GitHub Node environment, not a VPS, so two things are decided but unverified —
-    whether the plan offers Postgres, and whether it can run headless Chrome. Both are answered by
-    deploying once; see `D1` and `puppeteer-hosting-runbook.md`.*
+  - *Decided (`D1` hosting, `D2` database): Postgres, VPS deferred until the local build is
+    ready to deploy. **Partial**: the app runs against local Postgres now; the VPS itself
+    isn't provisioned, so nothing about it is verified yet — that happens at `0.3.1`, see
+    `puppeteer-hosting-runbook.md`.*
 - [ ] `0.2.2` (M) Migration tooling (Prisma or Knex); initial schema for Tenant, User
 - [~] `0.2.3` (S) Express/NestJS skeleton, health endpoint, request logging, CORS
   - *Done: Express skeleton, `GET /health`, CORS locked to `WEB_ORIGIN`. **Missing: request logging.***
@@ -486,7 +486,7 @@ All five are decided. Full reasoning and consequences in `decisions.md`.
 
 | # | Decision | Outcome | Ref |
 |---|---|---|---|
-| 1 | Hostinger VPS vs shared hosting | **Neither** — managed deploy-from-GitHub Node environment. Postgres availability and Chrome support both still need verifying on the real plan | `D1`, `D2` |
+| 1 | Hostinger VPS vs shared hosting | **VPS, deferred.** Build and test locally against real Postgres now; provision the VPS at `0.3.1` | `D1`, `D2` |
 | 2 | AI generation monthly limit on Premium | 50 successful generations per calendar month | `D6` |
 | 3 | Teammates later? | No — single `users` table, one row per business. Child tables still carry `tenant_id` so the split stays cheap if it is ever needed | `D3` |
 | 4 | Soft vs hard delete | Soft delete for clients and products | `D4` |

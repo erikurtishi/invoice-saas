@@ -4,11 +4,12 @@ The backlog's #1 risk is "PDF rendering is slow/heavy on shared hosting", with t
 mitigation: **test Puppeteer on the actual host in Phase 0/1, not Phase 4.** This is
 that test. It has passed locally; it is not proven until it passes on Hostinger.
 
-Hosting is Hostinger's managed deploy-from-GitHub Node environment, not a VPS
-(decision D1). That makes this test *more* important, not less: on a VPS a failure is
-fixable with `apt install`, and on a managed platform it may not be fixable at all.
-The outcome here decides whether Epic 4.3 renders PDFs in-process or behind a
-separate rendering service.
+Hosting is a Hostinger VPS, provisioned later once the local build is far enough
+along (decision D1). Root access means a failed launch here is fixable with
+`apt install`, unlike the managed-hosting path this doc briefly assumed — so §5
+("if Hostinger cannot run Chrome") is the unlikely branch, not the expected one.
+Run this once the VPS exists, before Epic 4.3 is built on the assumption that it
+already passed.
 
 Everything here runs one committed script, `apps/api/scripts/pdf-smoke.mjs`, so the
 laptop result and the VPS result are directly comparable.

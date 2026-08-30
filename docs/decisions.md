@@ -6,57 +6,46 @@ decision to be documented — this is that document.
 
 ---
 
-## D1 — Hosting: Hostinger, deploy-from-GitHub Node environment
+## D1 — Hosting: build against local Postgres now, Hostinger VPS later
 
-**Decided (revised 2026-08-30):** Hostinger's managed "deploy app from GitHub" Node
-environment. **No VPS**, no SSH-administered box.
+**Decided (revised 2026-08-30):** Development runs entirely on the local machine —
+local Node, local Postgres — until the product is far enough along to deploy. When
+deployment starts, hosting is a **Hostinger VPS**, not the managed deploy-from-GitHub
+Node environment.
 
-**Supersedes:** the earlier D1, which chose a Hostinger VPS. That decision is void; the
-consequences below replace it entirely.
+**Supersedes:** the same-day revision that chose managed Node hosting over a VPS. That
+revision is void. The original VPS decision stands, just later in the timeline than
+`0.2.1` implied.
+
+**Why revert:** the managed-hosting path had two unresolved risks that only a real
+Hostinger plan could answer — Postgres availability and whether headless Chrome could
+launch (see the now-superseded text, preserved in git history). A VPS answers both by
+construction: root access means Postgres is just `apt install postgresql`, and Chrome
+gets its system libraries the same way `pdf-smoke.mjs` already proved works locally.
+Trading that certainty for a git-push deploy stopped being worth it.
 
 **Consequences:**
-- Deployment (`0.3.1`) is a git push, not PM2 on a box we administer. PM2 drops out of
-  the plan; the platform owns process supervision and restarts.
-- `0.3.4` (CI) shrinks: GitHub Actions runs lint/typecheck/build, the platform does the
-  deploy. No deploy keys or rsync step to write.
-- `0.3.3` (staging vs production) becomes two apps fed from two branches, not two ports
-  on one machine.
-- `0.3.5` (backups) can no longer be a cron job we own. Whatever the managed database
-  offers is what we get, plus a scheduled logical dump run from CI if it is not enough.
-
-**Two things this decision puts at risk. Both must be checked on the real plan before
-`0.2.2` writes a migration and before Epic 4.3 is planned:**
-
-1. **Postgres availability (blocks D2).** The backlog's own rule is "VPS → Postgres,
-   shared hosting → MySQL". Managed Node hosting on Hostinger has historically paired
-   with MySQL; Postgres has been a VPS feature. If Postgres is not offered on this plan,
-   either D2 flips to MySQL — losing `jsonb` for the template config (`3.1.1`), which
-   then becomes a `JSON` column with weaker querying — or the database is hosted
-   externally (Neon, Supabase, Railway) and only the app runs on Hostinger.
-   **Check:** does the plan expose a Postgres instance or a `postgres://` connection
-   string? If not, decide database-elsewhere vs MySQL before the first migration.
-
-2. **Puppeteer / headless Chrome (the backlog's #1 risk, Epic 4.3).** A managed Node
-   environment typically forbids installing Chrome's system libraries
-   (`libnss3`, `libgbm1`, `libasound2`, …), and `npm install puppeteer` succeeding is
-   not proof Chrome will launch. This is precisely the risk row "if shared hosting
-   can't run headless Chrome, you need a VPS — find out before you've built around it."
-   **Check:** deploy the repo and run `npm run pdf:smoke` in the platform's shell or as
-   a one-off command. See `puppeteer-hosting-runbook.md`.
-   **If it fails,** the fallback is not a VPS-shaped retreat: PDF generation moves to a
-   separate service that can run Chrome (a small container host, or a rendering API),
-   called over HTTP by the API. The shared render function (`3.1.2`) stays the single
-   source of HTML either way, so this stays an infrastructure swap and never becomes a
-   second renderer.
-
-**Why this is still a reasonable call:** everything in Phases 0–3 is a plain Node app
-plus a database, none of which needs root. Only PDF generation does. Trading a box we
-have to patch, secure and babysit for a git-push deploy is worth it if the one heavy
-operation can be isolated — and it can, because it is one function behind one interface.
+- `0.2.1`–`0.2.5` (backend skeleton, migrations, tenant scoping, error shape) and
+  everything through Phase 3 (templates) and most of Phase 4 (invoices) are built and
+  tested against `localhost` Postgres. Nothing here is hosting-shaped — this was always
+  going to work the same way once deployed.
+- `0.3.1` (deployment) reverts to PM2-on-a-box: install Node, install Postgres, install
+  Chrome's deps, `pm2 start` behind nginx or Caddy for TLS termination. Undo the CI
+  shrink from the managed-hosting revision — `0.3.4` needs a real deploy step (SSH +
+  `git pull` + `pm2 reload`, or a small deploy script) once the VPS exists.
+  **Not scheduled yet** — do this when the user provisions the VPS, not before.
+  `puppeteer-hosting-runbook.md` already covers the VPS install sequence and is correct
+  as written; only its "managed platform, no root" §5 fallback stops applying.
+- `DATABASE_URL` in `apps/api/.env` points at local Postgres for the whole local-build
+  phase; it becomes the VPS connection string only at `0.3.1`.
 
 ## D2 — Database: Postgres
 
-**Decided:** Postgres.
+**Decided, unconditionally.** Local Postgres 17 is running now (`invoice_saas`
+database created, `DATABASE_URL` verified against it — see `apps/api/.env`). The VPS in
+D1 gives root, so `jsonb`, extensions, and everything else Postgres offers are all
+available without a hosting-driven fallback to MySQL. D1's earlier "check Postgres
+availability" risk no longer applies.
 
 **Consequences:**
 - `jsonb` is available for the template config blob (`3.1.1`) — schema-versioned JSON,
@@ -67,9 +56,6 @@ operation can be isolated — and it can, because it is one function behind one 
   `SELECT ... FOR UPDATE` inside the same transaction as the insert — not a Postgres
   `SEQUENCE`, which is explicitly gappy on rollback.
 - Migration tool: **Prisma** — see D11.
-- **Conditional on D1's check #1.** Postgres is the choice; whether the chosen
-  Hostinger plan provides one is unverified. Prisma (D11) is what keeps that
-  question cheap to answer late.
 
 ## D3 — Data model: single `users` table, no Tenant/User split
 
@@ -254,8 +240,8 @@ far smaller cost than hand-writing every other query to get it.
 
 ## Still open
 
-- **Does the chosen Hostinger plan provide Postgres, and can it run headless Chrome?**
-  The two checks in D1. Both are answered by deploying once and looking — neither needs a
-  design decision first. Blocks the first migration (`0.2.2`) and the Epic 4.3 plan.
+- **Nothing blocks `0.2.2` now.** Postgres is running locally and verified; the VPS
+  checks from the earlier managed-hosting revision no longer apply — a VPS has root, so
+  Postgres and Chrome are both just installed, not discovered.
 - **Transactional email provider:** Resend vs Postmark vs Hostinger SMTP (`4.3.4`).
 - **Session strategy:** cookie session vs JWT + refresh (`1.1.1`).
