@@ -138,7 +138,18 @@ Goal: an empty but correctly wired app deployed to Hostinger.
     (0.4.5 still owns the full audit, but nothing here needs retrofitting for it). Modal
     actually uses Motion (`AnimatePresence` + Radix `forceMount`), matching the stack
     table's "Use for: modals..." — not left as a CSS-transition substitute.*
-- [ ] `0.4.5` (S) `prefers-reduced-motion` global handling
+- [x] `0.4.5` (S) `prefers-reduced-motion` global handling
+  - *Three layers: `MotionConfig reducedMotion="user"` in `main.tsx` (app-wide backstop
+    for every `motion.*` element, present and future); `index.css`'s `@media
+    (prefers-reduced-motion: reduce)` block for everything that isn't Motion (Radix's
+    CSS `data-state` transitions, Tailwind's `animate-pulse`) — `animate-spin` (loading
+    spinners) deliberately excluded, a frozen spinner reads as broken rather than
+    reduced; and every 0.4.4 preset's own `getTransition()`. Verified empirically, not
+    just by code review: sampled the mobile drawer's transform every animation frame
+    with and without the media feature emulated — normal motion interpolates over
+    ~200ms of eased frames, reduced motion jumps straight to the settled state in one
+    frame (~9ms). Per-surface enforcement (X.3.4) is a later cross-cutting pass; this
+    is the global mechanism that makes that pass find nothing to fix by default.*
 
 ### Epic 0.4b — UI state primitives (build these before any feature screen)
 

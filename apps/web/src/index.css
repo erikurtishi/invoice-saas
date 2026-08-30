@@ -123,3 +123,22 @@
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* Backlog 0.4.5 — the other half of reduced-motion handling. `MotionConfig` in
+   main.tsx covers every `motion.*` element; this covers everything that isn't one —
+   Tailwind's `transition-*` utilities (hover/focus states, Radix's `data-state`-driven
+   open/close transitions on Select/Dropdown/Tooltip) and `animate-pulse` (Skeleton).
+   Loading spinners (`animate-spin`) are deliberately excluded: a frozen spinner reads
+   as broken, not calm, and a small contained rotation isn't the kind of motion
+   `prefers-reduced-motion` exists to prevent — WCAG 2.3.3 targets motion that can
+   trigger vestibular disorders, not state-communicating micro-animation. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin),
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

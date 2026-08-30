@@ -1,15 +1,23 @@
-import type { Transition, Variants } from 'motion/react';
+import { type Transition, type Variants, useReducedMotion } from 'motion/react';
 
 /**
  * Shared Motion configs (backlog 0.4.4) so animation feels like one system instead
  * of every screen inventing its own timing. Import these into any `motion.*`
  * element rather than writing new `transition`/`variants` inline.
  *
- * Full `prefers-reduced-motion` enforcement across the app is task 0.4.5 / X.3.4 —
- * but every preset here already collapses to a near-instant, motion-free transition
- * when it's set, via `getTransition()`. Nothing exported from this file has to be
- * retrofitted later.
+ * `prefers-reduced-motion` handling (0.4.5) is layered two ways: `MotionConfig` in
+ * `main.tsx` is the app-wide backstop for every `motion.*` element, including future
+ * ones that don't go through this file; every preset here also collapses to a near-
+ * instant transition on its own via `getTransition()`, so nothing exported below
+ * depends on the global config to be correct. `index.css` has the third layer, for
+ * CSS transitions/animations that aren't Motion at all (Radix's `data-state`
+ * transitions, Tailwind's `animate-pulse`).
+ *
+ * `useReducedMotion` is re-exported here so anywhere that needs to *skip* a
+ * motion-dependent feature entirely (not just speed it up — e.g. a drag-to-reorder
+ * interaction in the template editor, X.3.2) has one place to import it from.
  */
+export { useReducedMotion };
 
 const EASE_OUT: Transition['ease'] = [0.16, 1, 0.3, 1];
 const EASE_IN_OUT: Transition['ease'] = [0.65, 0, 0.35, 1];

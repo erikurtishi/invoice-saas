@@ -1,5 +1,6 @@
 import { QueryClientProvider, QueryErrorResetBoundary } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+import { MotionConfig } from 'motion/react';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -22,11 +23,19 @@ createRoot(rootElement).render(
       <QueryErrorResetBoundary>
         {({ reset }) => (
           <AppErrorBoundary onReset={reset}>
-            <BrowserRouter>
-              <TooltipProvider>
-                <App />
-              </TooltipProvider>
-            </BrowserRouter>
+            {/* Backlog 0.4.5: the app-wide backstop for every `motion.*` element.
+                `reducedMotion="user"` makes Motion honor the OS setting for any
+                animation in the tree automatically — including ones a future screen
+                adds without routing through lib/motion-presets.ts. Our presets'
+                own `getTransition()` stays too, as belt-and-suspenders for the
+                components we control directly. */}
+            <MotionConfig reducedMotion="user">
+              <BrowserRouter>
+                <TooltipProvider>
+                  <App />
+                </TooltipProvider>
+              </BrowserRouter>
+            </MotionConfig>
           </AppErrorBoundary>
         )}
       </QueryErrorResetBoundary>
