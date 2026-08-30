@@ -6,18 +6,53 @@ decision to be documented — this is that document.
 
 ---
 
-## D1 — Hosting: Hostinger VPS
+## D1 — Hosting: Hostinger, deploy-from-GitHub Node environment
 
-**Decided:** Hostinger VPS (not shared hosting).
+**Decided (revised 2026-08-30):** Hostinger's managed "deploy app from GitHub" Node
+environment. **No VPS**, no SSH-administered box.
+
+**Supersedes:** the earlier D1, which chose a Hostinger VPS. That decision is void; the
+consequences below replace it entirely.
 
 **Consequences:**
-- Postgres is available (see D2).
-- Puppeteer / headless Chrome can run server-side, so the PDF pipeline in Epic 4.3 is
-  viable as specified. Still verify it on the actual VPS in Phase 0/1, not Phase 4 —
-  this is the #1 risk in the backlog's risk table. Chrome needs its system libraries
-  installed on the box; a working `npm install puppeteer` is not proof it will launch.
-- Process management via PM2 (`0.3.1`), staging/production separation via environments
-  on the same VPS or separate ports/domains (`0.3.3`).
+- Deployment (`0.3.1`) is a git push, not PM2 on a box we administer. PM2 drops out of
+  the plan; the platform owns process supervision and restarts.
+- `0.3.4` (CI) shrinks: GitHub Actions runs lint/typecheck/build, the platform does the
+  deploy. No deploy keys or rsync step to write.
+- `0.3.3` (staging vs production) becomes two apps fed from two branches, not two ports
+  on one machine.
+- `0.3.5` (backups) can no longer be a cron job we own. Whatever the managed database
+  offers is what we get, plus a scheduled logical dump run from CI if it is not enough.
+
+**Two things this decision puts at risk. Both must be checked on the real plan before
+`0.2.2` writes a migration and before Epic 4.3 is planned:**
+
+1. **Postgres availability (blocks D2).** The backlog's own rule is "VPS → Postgres,
+   shared hosting → MySQL". Managed Node hosting on Hostinger has historically paired
+   with MySQL; Postgres has been a VPS feature. If Postgres is not offered on this plan,
+   either D2 flips to MySQL — losing `jsonb` for the template config (`3.1.1`), which
+   then becomes a `JSON` column with weaker querying — or the database is hosted
+   externally (Neon, Supabase, Railway) and only the app runs on Hostinger.
+   **Check:** does the plan expose a Postgres instance or a `postgres://` connection
+   string? If not, decide database-elsewhere vs MySQL before the first migration.
+
+2. **Puppeteer / headless Chrome (the backlog's #1 risk, Epic 4.3).** A managed Node
+   environment typically forbids installing Chrome's system libraries
+   (`libnss3`, `libgbm1`, `libasound2`, …), and `npm install puppeteer` succeeding is
+   not proof Chrome will launch. This is precisely the risk row "if shared hosting
+   can't run headless Chrome, you need a VPS — find out before you've built around it."
+   **Check:** deploy the repo and run `npm run pdf:smoke` in the platform's shell or as
+   a one-off command. See `puppeteer-hosting-runbook.md`.
+   **If it fails,** the fallback is not a VPS-shaped retreat: PDF generation moves to a
+   separate service that can run Chrome (a small container host, or a rendering API),
+   called over HTTP by the API. The shared render function (`3.1.2`) stays the single
+   source of HTML either way, so this stays an infrastructure swap and never becomes a
+   second renderer.
+
+**Why this is still a reasonable call:** everything in Phases 0–3 is a plain Node app
+plus a database, none of which needs root. Only PDF generation does. Trading a box we
+have to patch, secure and babysit for a git-push deploy is worth it if the one heavy
+operation can be isolated — and it can, because it is one function behind one interface.
 
 ## D2 — Database: Postgres
 
@@ -31,7 +66,10 @@ decision to be documented — this is that document.
 - Gapless per-tenant invoice numbering (`4.1.3`) uses a sequence table row locked with
   `SELECT ... FOR UPDATE` inside the same transaction as the insert — not a Postgres
   `SEQUENCE`, which is explicitly gappy on rollback.
-- Migration tool (Prisma vs Knex) still open — see "Still open" below.
+- Migration tool: **Prisma** — see D11.
+- **Conditional on D1's check #1.** Postgres is the choice; whether the chosen
+  Hostinger plan provides one is unverified. Prisma (D11) is what keeps that
+  question cheap to answer late.
 
 ## D3 — Data model: single `users` table, no Tenant/User split
 
@@ -119,12 +157,105 @@ worth having there are the type-aware ones, so the linter constrains the compile
 - `@types/node` is pinned to `^22.20.1` to match the Node 22 runtime rather than
   floating ahead to types for a Node version we do not run.
 
+## D9 — Placeholder English copy until i18n lands (X.1.1)
+
+**Decided:** UI copy written before `react-i18next` exists is hardcoded English, kept
+in a single `COPY` object per file and marked `TODO(X.1.1)`.
+
+**Why:** CLAUDE.md forbids hardcoded UI strings and the backlog warns against deferring
+i18n — both correct at scale. But pulling all of X.1.1 (provider, en/sq/mk resources,
+detection, persistence, lint rule) into task `0.1.5` to translate three strings on one
+error screen trades a large scope expansion for a tiny saving.
+
+**Consequences:**
+- Applies only to surfaces built before X.1.1 — currently just
+  `apps/web/src/components/AppErrorBoundary.tsx`.
+- Every such string sits in one `COPY` object so the conversion is mechanical.
+- **X.1.1 is not done until `grep -r "TODO(X.1.1)"` returns nothing.** That grep is the
+  checklist.
+- The `no-literal-string` lint rule from `X.1.1` is what stops this convention from
+  quietly spreading past its intended scope.
+
+## D10 — Never `system-ui` in invoice rendering
+
+**Decided:** The invoice renderer and PDF pipeline must use an explicit, self-hosted
+font stack. `system-ui` is banned outright in any surface that reaches a PDF.
+
+**Why — measured, not theoretical.** The Phase 0 Puppeteer smoke test
+(`apps/api/scripts/pdf-smoke.mjs`) rendered `Фактура` with `font-family: system-ui`
+and the text extracted back out of the PDF as `Фаĸтура`: Chrome emitted a ToUnicode
+map turning Cyrillic **к U+043A** into Latin **ĸ U+0138 (LATIN SMALL LETTER KRA)`.
+The page *looks* correct — the failure only appears when the text is copied,
+searched, or extracted. Every other stack tested (`sans-serif`, `serif`,
+`Helvetica/Arial`, `Noto Sans`) round-tripped correctly.
+
+This is precisely the backlog risk "Cyrillic breaks in PDF but not on screen",
+occurring on a developer laptop before a single invoice template exists.
+
+**Consequences:**
+- `3.1.6` (self-hosted Noto Sans/Serif) is a correctness requirement, not a polish
+  task — it removes the dependency on whatever fonts the host happens to have.
+- `X.1.6` must verify Cyrillic by **extracting text from the generated PDF and
+  comparing codepoints**, not by eyeballing the render. Visual inspection cannot
+  catch this class of bug.
+- The curated font pairings in the template editor (`3.2.6`) must never expose
+  `system-ui` as an option.
+
+## D11 — Migration tooling: Prisma
+
+**Decided:** Prisma (`prisma migrate` + Prisma Client) for schema, migrations and data
+access. Settles the `0.2.2` open question.
+
+**Why, against Knex specifically:**
+
+- **It enforces the tenant rule instead of relying on discipline.** CLAUDE.md requires
+  every query scoped by `tenant_id` "via middleware, never per-route" (`0.2.4`). A Prisma
+  Client extension (`$extends({ query: { $allModels: { ... } } })`) injects the scope into
+  every `findMany`/`update`/`delete` for every model, in one file. Knex has no equivalent
+  hook — the best it offers is a wrapper that every developer must remember to call, which
+  means the guarantee is a code-review convention rather than a property of the system.
+  A missed scope is a cross-tenant data leak (`X.4.6`), so this difference is the whole
+  argument on its own.
+- **Generated types are the same shape discipline as `packages/shared`.** The schema is
+  the single source of truth for rows the way Zod is for payloads. Knex's `Knex.TableType`
+  interfaces are hand-maintained and drift silently from the real columns.
+- **Migrations are first-class.** `prisma migrate dev` diffs the schema and writes the SQL;
+  Knex requires hand-authoring both `up` and `down` for every change.
+- **It hedges D1's open Postgres question.** Prisma targets Postgres and MySQL from the
+  same schema file. If the Hostinger plan turns out not to offer Postgres, the port is a
+  provider change plus a review of column types — not a rewrite of hand-written SQL.
+
+**The objection against it — gapless invoice numbering — does not hold.** `4.1.3` needs a
+row lock: `SELECT ... FOR UPDATE` on the tenant's counter row, in the same transaction as
+the insert. Prisma's interactive transactions give exactly that:
+
+```ts
+await prisma.$transaction(async (tx) => {
+  const [counter] = await tx.$queryRaw`
+    SELECT next_value FROM invoice_counter
+    WHERE tenant_id = ${tenantId} AND doc_type = ${docType}
+    FOR UPDATE`;
+  // ... increment, then tx.invoice.create(...) on the same connection
+});
+```
+
+One raw query, in one function, in the one place in the codebase that needs it. That is a
+far smaller cost than hand-writing every other query to get it.
+
+**Consequences:**
+- Adds a build step: `prisma generate` must run before typecheck in CI and after install.
+- The tenant-scoping extension (`0.2.4`) is the only sanctioned way to reach the database.
+  Raw `$queryRaw` is allowed **only** inside the numbering transaction and must carry the
+  tenant predicate explicitly — it bypasses the extension.
+- `packages/shared` still owns Zod schemas for API payloads. Prisma types describe rows,
+  Zod describes wire format; they are not the same thing and neither generates the other.
+
 ---
 
 ## Still open
 
-- **Migration tooling:** Prisma vs Knex (`0.2.2`). Prisma gives typed access and easy
-  migrations; Knex gives full control over the `FOR UPDATE` numbering transaction. Both
-  workable — decide before the first migration is written.
+- **Does the chosen Hostinger plan provide Postgres, and can it run headless Chrome?**
+  The two checks in D1. Both are answered by deploying once and looking — neither needs a
+  design decision first. Blocks the first migration (`0.2.2`) and the Epic 4.3 plan.
 - **Transactional email provider:** Resend vs Postmark vs Hostinger SMTP (`4.3.4`).
 - **Session strategy:** cookie session vs JWT + refresh (`1.1.1`).
