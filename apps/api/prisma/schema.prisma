@@ -1,8 +1,10 @@
 // Prisma schema — apps/api. See decision D11 (why Prisma over Knex) and D3 (why one
 // `users` table instead of a Tenant/User split) in docs/decisions.md.
 //
-// Scope of this file grows with the backlog: this first migration adds only `User`
-// (backlog 0.2.2). Client, Product, Template, Invoice, etc. arrive with their own phases.
+// Scope of this file grows with the backlog: 0.2.2 added `User`; Epic 1.1 adds the
+// auth token tables (`RefreshToken`, `OneTimeToken`); Epic 1.2 adds the `tier` and
+// `onboardingCompletedAt` columns on `User`. Client, Product, Template, Invoice,
+// etc. arrive with their own phases.
 
 generator client {
   provider = "prisma-client-js"
@@ -18,6 +20,16 @@ enum UserRole {
   ADMIN
 }
 
+/// Billing tier (backlog 1.2.1). Set to FREE on signup. Phase 6 introduces the full
+/// `Subscription` table and the central entitlement service (6.1.2) that becomes the
+/// source of truth for "what can this account do" — until then this column is it.
+/// Nothing should branch on it directly outside that (future) service.
+enum UserTier {
+  FREE
+  BASIC
+  PREMIUM
+}
+
 enum PaperSize {
   A4
   LETTER
@@ -25,10 +37,24 @@ enum PaperSize {
   A5
 }
 
+/// How a `Client`'s address is held (backlog 2.1.3). `STRUCTURED` uses the
+/// line1/line2/city/postalCode/country columns; `FREE_TEXT` uses `addressText`.
+enum ClientAddressMode {
+  STRUCTURED
+  FREE_TEXT
+}
+
 enum Language {
   EN
   SQ
   MK
+}
+
+/// What a `OneTimeToken` row authorizes. One table, one `purpose` column, rather
+/// than a near-identical table per flow (backlog 1.1.2 / 1.1.3).
+enum TokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
 }
 
 /// One row per signed-up business (decision D3): login credentials and business
@@ -46,6 +72,14 @@ model User {
 
   /// 8.1.1 — admin routes double-check this; it is never the only gate.
   role UserRole @default(OWNER)
+
+  /// Billing tier, assigned FREE at signup (1.2.1). See the `UserTier` note above:
+  /// Phase 6's entitlement service supersedes this as the read path.
+  tier UserTier @default(FREE)
+
+  /// Set when the user finishes or explicitly skips the post-signup onboarding
+  /// wizard (1.2.4). Null → the web app routes them into the wizard on next load.
+  onboardingCompletedAt DateTime?
 
   // --- Business profile (spec §3, backlog 1.2.2) ---
   businessName String
@@ -73,5 +107,179 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  refreshTokens RefreshToken[]
+  oneTimeTokens OneTimeToken[]
+  clients       Client[]
+  products      Product[]
+  templates     Template[]
+
   @@map("users")
+}
+
+/// A tenant's customer (spec §20, backlog Epic 2.1). Reusable across invoices.
+///
+/// Owner column is `tenantId` referencing `users.id` (decision D3); the tenant
+/// scope is injected by the Prisma extension in `db/tenant-scope.ts` for every
+/// query — `Client` is listed in that file's `TENANT_SCOPED_MODELS`.
+///
+/// Soft delete (decision D4): `deletedAt` is set instead of removing the row, so
+/// invoices that already reference this client keep rendering. Every list / picker
+/// query filters `deletedAt: null`; `X.7.22` covers the UI when a reference no
+/// longer resolves at all.
+model Client {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name  String
+  /// Optional — Send is disabled (not blocked) when a client has no email (spec §91).
+  /// Stored lower-cased; not unique (two of a tenant's clients may share a billing inbox).
+  email String?
+  /// VAT / tax registration number. Plain string, format varies by country (MK/AL/XK/US).
+  taxId String?
+
+  addressMode  ClientAddressMode @default(STRUCTURED)
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  postalCode   String?
+  country      String?
+  /// Whole address as one blob, used when `addressMode == FREE_TEXT`.
+  addressText  String?
+
+  /// ISO 4217 code overriding the tenant's `defaultCurrency` for this client's
+  /// invoices. Null → inherit the tenant default. Curated list enforced at the API.
+  currency String?
+
+  notes String?
+
+  /// Set by a soft delete (decision D4); null for a live client.
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, deletedAt])
+  @@index([tenantId, name])
+  @@map("clients")
+}
+
+/// A tenant's reusable line item (spec §21, backlog Epic 2.2): a saved
+/// name/price/unit/tax-rate that pre-fills an invoice row.
+///
+/// Owner column `tenantId` → `users.id` (decision D3); scope injected by the
+/// extension in `db/tenant-scope.ts` (`Product` is listed in
+/// `TENANT_SCOPED_MODELS`). Soft delete (decision D4): `deletedAt` is set, the row
+/// stays so invoices that reference it keep rendering.
+///
+/// Money/rate columns are integers (decision D17): `defaultPriceMinor` in minor
+/// units of the tenant's `defaultCurrency` (no per-product currency, no FX),
+/// `defaultTaxRateBp` in basis points. This keeps invoice arithmetic integer end
+/// to end (backlog 4.1.2).
+model Product {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  /// Free-text unit label ("hour", "piece", "kg"). Not an enum.
+  unit        String?
+
+  /// Minor units, tenant default currency. Null → no standard price (set per invoice).
+  defaultPriceMinor Int?
+  /// Basis points (1800 = 18.00%). 0 = no tax.
+  defaultTaxRateBp  Int @default(0)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([tenantId, deletedAt])
+  @@index([tenantId, name])
+  @@map("products")
+}
+
+/// A saved invoice design (spec §2/§4, backlog Epic 3.3): a name plus the template
+/// config JSON (block order, toggles, accent, font, paper, logo — 3.1.1).
+///
+/// Owner column `tenantId` → `users.id` (decision D3); scope injected by the
+/// extension in `db/tenant-scope.ts` (`Template` is in `TENANT_SCOPED_MODELS`).
+/// Soft-deleted (decision D4) so a historical invoice that references one keeps
+/// rendering (3.3.5, X.7.22).
+model Template {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name String
+  /// Validated by `templateConfigSchema` (@invoice-saas/shared, 3.1.1) — schema-
+  /// versioned, never read unparsed.
+  config Json
+
+  /// Exactly one live template per tenant is the default (3.3.4) — the picker's
+  /// preselection and the free tier's only usable template (3.3.6). Enforced in a
+  /// transaction, not a DB constraint.
+  isDefault Boolean @default(false)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([tenantId, deletedAt])
+  @@map("templates")
+}
+
+/// One row per issued refresh token (backlog 1.1.1). The raw token is a random
+/// opaque string held only in the client's httpOnly cookie; we store its SHA-256
+/// hash so a database leak can't be replayed as a live session.
+///
+/// Rotation: `/auth/refresh` consumes the presented row (sets `revokedAt` +
+/// `replacedById`) and issues a fresh one. A token that is presented after it was
+/// already rotated is treated as theft — the whole chain for that user is revoked.
+model RefreshToken {
+  id        String @id @default(cuid())
+  tokenHash String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  /// Set when the token is rotated (normal use) or force-revoked (logout, password
+  /// reset, detected reuse). A row with `revokedAt == null && expiresAt > now` is
+  /// the only kind that authenticates a refresh.
+  revokedAt DateTime?
+  /// The token this one was rotated into, for reuse detection.
+  replacedById String? @unique
+
+  /// Coarse client fingerprint, for the "active sessions" view a later phase may add.
+  userAgent String?
+  ip        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// Single-use, time-limited tokens for the email-verification (1.1.2) and
+/// password-reset (1.1.3) flows. Same storage rule as `RefreshToken`: only the
+/// SHA-256 hash is persisted. `consumedAt` makes a token single-use; issuing a new
+/// token of the same purpose for a user invalidates that user's older unconsumed
+/// ones so only the most recent link works.
+model OneTimeToken {
+  id        String       @id @default(cuid())
+  tokenHash String       @unique
+  purpose   TokenPurpose
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt  DateTime
+  consumedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose])
+  @@map("one_time_tokens")
 }

@@ -246,6 +246,220 @@ far smaller cost than hand-writing every other query to get it.
 - `packages/shared` still owns Zod schemas for API payloads. Prisma types describe rows,
   Zod describes wire format; they are not the same thing and neither generates the other.
 
+## D12 — Session strategy: access JWT + rotating opaque refresh token
+
+**Decided (settles the `1.1.1` open question):** A short-lived **access JWT**
+(15 min, HS256, sent as `Authorization: Bearer`) plus a long-lived **opaque refresh
+token** (30 days) in an `httpOnly`, `SameSite=Lax` cookie scoped to `/auth`.
+
+**Mechanics:**
+- Only the SHA-256 hash of a refresh token is stored (`refresh_tokens` table), so a
+  DB dump can't be replayed as a live session.
+- Every `POST /auth/refresh` **rotates**: the presented row is revoked and linked
+  (`replacedById`) to a freshly issued one. Presenting an already-revoked token is
+  treated as theft — every active refresh token for that user is revoked and they
+  must log in again.
+- Password reset and logout revoke refresh tokens server-side; a stolen access
+  token still dies on its own within 15 minutes.
+- Web app keeps the access token in a **module variable, never `localStorage`** —
+  an XSS bug can't lift a durable credential. A page reload drops it;
+  `lib/api-client.ts` mints a new one from the cookie on the first 401.
+
+**Why not a plain cookie session:** functionally fine, but the access-token split
+keeps the API's per-request auth check stateless (no session-store round-trip on
+every call) which matters once Phase 4's PDF/render endpoints get heavy, and it
+leaves the door open to a second client (mobile, CLI) without reworking auth.
+
+**Why not a long-lived JWT with no refresh:** can't be revoked. Logout, password
+reset, and "sign out everywhere" all need a server-side handle on the session.
+
+## D13 — Mail: pluggable `Mailer` port, `ConsoleMailer` until a provider is picked
+
+**Decided (partial — the provider choice in `4.3.4` is still open):** All outbound
+email goes through a one-method `Mailer` interface (`apps/api/src/mail/mailer.ts`).
+The only implementation today is `ConsoleMailer`, which logs the message (and the
+verification / reset link) to the server console, so the `1.1.2` / `1.1.3` flows
+are fully exercisable on a laptop with no provider account.
+
+**Consequences:**
+- `mail/index.ts` **throws at boot** if `NODE_ENV=production` and no real transport
+  is wired — a mock mailer must never reach production silently.
+- Choosing Resend / Postmark / SMTP (`4.3.4`) is one new `Mailer` class plus a
+  one-line change in `mail/index.ts`; no call site changes.
+- Email copy is placeholder English in `mail/index.ts`, `TODO(X.1.1)` — it becomes a
+  per-language lookup keyed on `user.preferredLanguage` when i18n lands.
+
+## D14 — Free tier: a `tier` column on `users` now, `Subscription` table in Phase 6
+
+**Decided (settles `1.2.1` — "assigns Free tier automatically"):** Add a `tier` enum
+(`FREE` | `BASIC` | `PREMIUM`, default `FREE`) directly on `users`. Signup writes no
+code for it — the column default *is* the "assign Free automatically". Nothing in the
+codebase branches on `tier` until Phase 6.
+
+**Why not defer entirely:** `1.2.1` explicitly asks for tier-on-signup, and the auth
+session (`AuthUser`) is the natural place for the app to learn a user's plan. A nullable
+"no record = Free" convention would mean every later reader special-cases the absence.
+
+**Why not the full `Subscription` table now:** `6.1.1` designs that table (status,
+source, start/end dates, Stripe linkage) and `6.1.2` the central entitlement service
+that is the *only* sanctioned tier reader. Building it in Phase 1 with no billing, no
+Stripe and no manual grants would be guessing at its shape.
+
+**Consequences:**
+- Phase 6 migrates this: `Subscription` rows become the source of truth, the entitlement
+  service (`6.1.2`) reads them, and this column is either dropped or kept as a
+  denormalised cache the service writes. Either way, **only** `6.1.2` reads tier after
+  Phase 6 — the same rule D5 already states.
+- `AuthUser.tier` is exposed to the web app for display/gating hints; server-side
+  enforcement (`6.1.4`) never trusts it.
+
+## D15 — File storage: a `Storage` port, `LocalDiskStorage` until a cloud store is picked
+
+**Decided (partial — the concrete cloud backend is still open):** All persisted binary
+assets (business logos now — `1.2.3`; generated PDFs and other uploads later) go through
+a one-interface `Storage` port (`apps/api/src/lib/storage/storage.ts`). The only
+implementation today is `LocalDiskStorage`, writing under `UPLOAD_DIR` and served
+read-only by `express.static` at `/uploads`.
+
+Deliberately the same shape as the D13 `Mailer` port — "pluggable adapter, concrete
+choice deferred".
+
+**Why local disk is fine for now:** D1 puts the whole build on one machine, then one
+VPS. A single box with a persistent disk needs nothing more; object storage only earns
+its keep once there's more than one app server or a CDN in front.
+
+**Consequences:**
+- Adopting S3 / R2 / a VPS volume mount is one new `Storage` class plus a one-line swap
+  in `lib/storage/index.ts` — no call-site changes (`profile-service`, and later the PDF
+  pipeline, only see `storage`).
+- Stored `logoUrl` values are **root-relative** (`/uploads/logos/…`), resolved against
+  the API origin by whoever renders them (`resolveAssetUrl` on the web; the Phase 3 PDF
+  renderer server-side). A cloud backend that returns absolute URLs still satisfies the
+  `Storage` contract — `resolveAssetUrl` passes absolute URLs through untouched.
+- Uploaded files are re-encoded (logos → bounded WebP via `sharp`), never stored as the
+  raw upload: strips metadata, caps dimensions, removes the "is this really an image"
+  question from every downstream consumer.
+- `X.4.4` (account deletion) and `X.4.6` (upload validation) both touch this — the port
+  is where a "delete every asset for this user" method lands later.
+
+## D16 — Client address: per-client choice of structured vs free-text
+
+**Decided (settles a `2.1.3` sub-question the backlog left open — "address" is
+unspecified):** a `Client` carries an `addressMode` (`STRUCTURED` | `FREE_TEXT`,
+default `STRUCTURED`) and the columns for *both* shapes; the form shows one set at a
+time and the invoice renderer reads whichever the mode names.
+
+**Why both, not one:**
+- **Structured** (line1/line2/city/postalCode/country) mirrors the business profile
+  on `users`, so the Phase 3 renderer's client-info block is symmetric with its
+  business-info block — same fields, same formatting code.
+- **Free-text** is what a user with a client whose address doesn't fit five Western
+  fields actually needs (common across MK/AL/XK and international clients). Forcing
+  everything structured would mean lossy data entry; forcing everything free-text
+  would lose the renderer's ability to align and format.
+- The cost of carrying both is six nullable columns and one enum — cheap. Picking
+  wrong and migrating later is not.
+
+**Consequences:**
+- `3.1.3` (client-info block) branches once on `addressMode`; nothing else does.
+- No cross-field requirement — a client with no address at all is valid (Send only
+  needs an email; spec §91).
+- Products (`2.2`) have no address, so this stays Client-only.
+
+## D17 — Product money: integer minor units + basis points, tenant default currency
+
+**Decided (settles `2.2.1` — "default price" and "default tax rate" have no stored
+form in the spec):**
+- `Product.defaultPriceMinor` — `Int?`, minor units (×100; every target currency is
+  2-decimal so the scale is a constant, not a per-currency lookup). **Nullable** —
+  a product can be a named service whose rate is set per invoice.
+- `Product.defaultTaxRateBp` — `Int @default(0)`, basis points (`1800` = 18.00%).
+  Integer, not a percent float, so it handles `8.25%` (a real US rate) exactly and
+  keeps line math integer.
+- **No per-product currency and no FX.** The price is implicitly in the tenant's
+  `defaultCurrency`; on an invoice in another currency it is just a prefill the
+  user overwrites. A per-product currency column was rejected — it invites an
+  FX-conversion expectation the product doesn't have and forces the picker to
+  reconcile two currencies.
+
+**Consequences:**
+- `packages/shared/src/money.ts` is the single decimal⇆integer boundary
+  (`amountStringToMinor` / `minorToAmountString` / `percentStringToBp` /
+  `bpToPercentString`). The product form converts on load/submit; the API and DB
+  only ever see integers. The Phase 3 renderer and Phase 4 line-item math use the
+  same helpers — never `parseFloat` on a price anywhere.
+- `4.1.2` (document rounding rules) inherits an all-integer pipeline; there is no
+  float to round in the product layer.
+- `4.2.7` (currency symbol / locale formatting) layers on top of
+  `minorToAmountString` — it formats, it doesn't re-parse.
+
+## D18 — Render engine: one isomorphic pure function in `packages/shared`
+
+**Decided (settles where the 3.1.2 "single render engine" lives and how it is
+shared):** `packages/shared/src/render/` — no fourth workspace (D7 stands). The
+engine is a pure function `renderInvoice(templateConfig, invoiceData, options) →
+{ html }` returning a **complete, self-contained HTML document**: inline `<style>`,
+`@font-face`, no `<script>`, no external CSS/JS. It runs unchanged in the browser
+(live preview) and in Node (Puppeteer PDF) — no React, no DOM APIs.
+
+**Why in `shared`, not a new package:** it is pure TypeScript with one dependency
+(`zod`, already there) and sits next to the data shapes it consumes. A separate
+workspace would add a build target and a version boundary for no isolation
+benefit.
+
+**How the two consumers use the one output:**
+- **Preview** — `media: 'screen'`, injected into `<iframe srcDoc sandbox>` so the
+  invoice CSS is isolated from the app shell. What you see is byte-for-byte the DOM
+  the PDF is made from (CLAUDE.md: one renderer).
+- **PDF (4.3.1)** — `media: 'print'` (emits `@page`), fed to `page.setContent`.
+
+**Fonts** are served by the API only (`/fonts/*.woff2`, from
+`packages/shared/assets/fonts/`). The preview loads them cross-origin (the global
+`cors()` covers it); the PDF loads them same-origin. `options.assetBaseUrl` selects
+the origin and also resolves a root-relative logo URL. A hermetic data-URI font
+mode can be added at 4.3.1 if the `networkidle0` wait proves flaky.
+
+**Totals** are not computed inside the renderer — it receives precomputed integer
+minor-unit amounts. `render/invoice-math.ts` `computeInvoiceTotals` is the single
+calculator both the preview and (later) the server call; **4.1.2 owns the rounding
+*policy*** and may change that one file (it currently rounds line-level, half-up).
+
+**Consequences:**
+- `InvoiceRenderData` (`render/invoice-data.ts`) is defined now; Phase 4's Invoice
+  model (4.1.1) must produce that shape.
+- Printed invoice labels are trilingual in `render/labels.ts` (EN/SQ/MK), separate
+  from the app's react-i18next (X.1.1) — a Macedonian invoice is never
+  English-labelled (spec §10).
+- `schemaVersion` on every stored template config; bump + migrate, never read
+  unparsed (3.3).
+
+## D19 — Entitlements: one `entitlements.ts` seam that reads `user.tier` now, Phase 6 fills it in
+
+**Decided (resolves the tension between `3.3.6` — "free tier: default template
+only, enforced server-side" — and D14 / the `UserTier` schema note that nothing
+should branch on `tier` outside Phase 6's future service):**
+
+`apps/api/src/lib/entitlements.ts` is created now as the **single place** the app
+reads `user.tier` to decide what an account may do. It currently reads the
+`users.tier` column directly (which D14 already says *is* the answer until Phase
+6). `6.1.2` swaps the bodies of its functions to resolve `Subscription` records
+(Stripe + manual grants, decision D5) and returns the highest active tier — **no
+call site changes**, because every tier check already goes through this file.
+
+**Why this honours D14 rather than breaking it:** D14's actual concern is "one
+place, not scattered `if (tier === …)` across the codebase". The seam *is* that one
+place; building it now with a column read and a `TODO(6.1.2)` is cheaper and
+safer than either scattering the check or leaving the `3.3.6` API unguarded
+(spec §9: "enforced server-side, not just in the UI").
+
+**Consequences:**
+- First functions: `canManageTemplates(tier)` / `requireCanManageTemplates(userId)`
+  — every `/templates` write goes through the latter (403 + upgrade message for
+  `FREE`). Future gates (free-tier invoice limit `6.1.3`, AI monthly cap `7.1.6`)
+  land in the same file.
+- The web still uses `AuthUser.tier` for display/gating hints only (D14) — the
+  server never trusts the client's view.
+
 ---
 
 ## Still open
@@ -254,4 +468,7 @@ far smaller cost than hand-writing every other query to get it.
   checks from the earlier managed-hosting revision no longer apply — a VPS has root, so
   Postgres and Chrome are both just installed, not discovered.
 - **Transactional email provider:** Resend vs Postmark vs Hostinger SMTP (`4.3.4`).
-- **Session strategy:** cookie session vs JWT + refresh (`1.1.1`).
+  The `Mailer` port (D13) is in place; only the concrete transport is undecided.
+- **Cloud file storage backend:** S3 / Cloudflare R2 / VPS volume (D15). The `Storage`
+  port and `LocalDiskStorage` are in place; the concrete cloud store is picked when
+  single-box hosting stops being enough (not before deploy).

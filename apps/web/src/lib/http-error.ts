@@ -8,11 +8,15 @@
  */
 export class HttpError extends Error {
   readonly status: number;
+  /** Present on a 422 `VALIDATION_ERROR`: field path → messages. Forms map this
+   * back onto their inputs (`setError`) instead of showing a top-level summary. */
+  readonly fields?: Record<string, string[]>;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, fields?: Record<string, string[]>) {
     super(message);
     this.name = 'HttpError';
     this.status = status;
+    if (fields) this.fields = fields;
   }
 }
 

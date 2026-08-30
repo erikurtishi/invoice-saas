@@ -1,0 +1,110 @@
+import { z } from 'zod';
+
+import { optionalText } from './text.js';
+
+/**
+ * Business-profile payload shapes (backlog Epic 1.2). Imported by `apps/api` for
+ * request validation and by `apps/web` for the settings / onboarding form
+ * resolvers, so the profile form and the `PATCH /profile` endpoint can never
+ * disagree on a field.
+ *
+ * The profile lives on the `users` row (decision D3 — the user *is* the tenant), so
+ * these describe a slice of that row, not a separate entity.
+ */
+
+/** Paper sizes the renderer supports (spec §4, mirrors the Prisma `PaperSize` enum). */
+export const PAPER_SIZES = ['A4', 'LETTER', 'LEGAL', 'A5'] as const;
+export type PaperSize = (typeof PAPER_SIZES)[number];
+
+/** UI + invoice languages (mirrors the Prisma `Language` enum). */
+export const PROFILE_LANGUAGES = ['EN', 'SQ', 'MK'] as const;
+export type ProfileLanguage = (typeof PROFILE_LANGUAGES)[number];
+
+/**
+ * Default-currency choices offered in the profile form. Curated rather than "any
+ * ISO 4217 string": these cover the target markets (MK/AL/XK + US) plus the common
+ * international ones. Per-invoice currency (4.2.7) is a separate, wider setting.
+ */
+export const PROFILE_CURRENCIES = ['EUR', 'USD', 'MKD', 'ALL', 'RSD', 'GBP', 'CHF'] as const;
+export type ProfileCurrency = (typeof PROFILE_CURRENCIES)[number];
+
+/** Max net payment term the form accepts, in days. */
+export const PAYMENT_TERMS_MAX_DAYS = 365;
+
+/**
+ * Address lines, country, tax ID etc. are stored as plain strings — never parsed or
+ * format-validated (formats vary by country; see the schema comment on `taxId`).
+ * The `optionalText` builder they use lives in `./text.ts`, shared with the client
+ * schema.
+ */
+
+/**
+ * The editable business profile (backlog 1.2.2). The settings form and the
+ * onboarding wizard both submit this whole object; the API replaces the stored
+ * values with it wholesale (a PATCH in verb only — there are no partial updates,
+ * which keeps "cleared a field" unambiguous).
+ */
+export const businessProfileSchema = z.object({
+  businessName: z
+    .string()
+    .trim()
+    .min(1, 'Enter your business name.')
+    .max(200, 'Business name is too long.'),
+  addressLine1: optionalText(200),
+  addressLine2: optionalText(200),
+  city: optionalText(120),
+  postalCode: optionalText(32),
+  /** Free text — printed on the invoice as entered. Not an ISO country code. */
+  country: optionalText(60),
+  /** VAT / tax registration number. Plain string, format varies by country. */
+  taxId: optionalText(64),
+  defaultCurrency: z.enum(PROFILE_CURRENCIES, {
+    message: 'Choose a default currency.',
+  }),
+  defaultPaymentTermsDays: z.coerce
+    .number({ message: 'Enter a number of days.' })
+    .int('Enter a whole number of days.')
+    .min(0, 'Payment terms cannot be negative.')
+    .max(PAYMENT_TERMS_MAX_DAYS, `Use ${PAYMENT_TERMS_MAX_DAYS} days or fewer.`),
+  defaultPaperSize: z.enum(PAPER_SIZES, { message: 'Choose a default paper size.' }),
+  preferredLanguage: z.enum(PROFILE_LANGUAGES, { message: 'Choose a language.' }),
+});
+export type BusinessProfileInput = z.infer<typeof businessProfileSchema>;
+
+/**
+ * What `GET /profile` returns and what `PATCH /profile` / the logo endpoints echo
+ * back. Same fields as the input plus the server-owned `logoUrl`; optional text
+ * fields are always an explicit `string | null`, never `undefined`.
+ */
+export const businessProfileResponseSchema = z.object({
+  businessName: z.string(),
+  addressLine1: z.string().nullable(),
+  addressLine2: z.string().nullable(),
+  city: z.string().nullable(),
+  postalCode: z.string().nullable(),
+  country: z.string().nullable(),
+  taxId: z.string().nullable(),
+  defaultCurrency: z.string(),
+  defaultPaymentTermsDays: z.number().int(),
+  defaultPaperSize: z.enum(PAPER_SIZES),
+  preferredLanguage: z.enum(PROFILE_LANGUAGES),
+  /** Root-relative path (`/uploads/logos/…`); the web app resolves it against the
+   * API origin. `null` until a logo is uploaded (1.2.3). */
+  logoUrl: z.string().nullable(),
+});
+export type BusinessProfileResponse = z.infer<typeof businessProfileResponseSchema>;
+
+// --- Logo upload (backlog 1.2.3) --------------------------------------------
+
+/** Upload ceiling. Enforced by multer at the edge and re-checked in the service. */
+export const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+
+/** Accepted source formats. SVG is deliberately excluded (script/XXE surface); the
+ * server re-encodes everything to a normalised raster anyway. */
+export const LOGO_ACCEPTED_MIME = ['image/png', 'image/jpeg', 'image/webp'] as const;
+
+/** `accept` attribute for the file input, kept in sync with the MIME allow-list. */
+export const LOGO_ACCEPT_ATTR = LOGO_ACCEPTED_MIME.join(',');
+
+/** Longest edge of the stored logo, in pixels — the service downscales to fit. */
+export const LOGO_MAX_DIMENSION = 512;

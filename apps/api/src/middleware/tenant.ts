@@ -6,10 +6,8 @@ import { ApiError } from '../lib/api-error.js';
 declare module 'express-serve-static-core' {
   interface Request {
     /**
-     * Populated by session/JWT auth middleware — not built yet (backlog 1.1.1).
-     * Declared here, ahead of that middleware, so this file and every route
-     * downstream of it already agree on the shape instead of improvising one when
-     * auth lands.
+     * Populated by `middleware/authenticate.ts` from the access-token JWT
+     * (backlog 1.1.1). Undefined on any route not behind `authenticate`.
      */
     auth?: { userId: string };
     /** Set by `requireTenant` below. Undefined on any route not behind it. */
@@ -23,9 +21,10 @@ declare module 'express-serve-static-core' {
  * `req.db` — never the raw `prisma` export from `db/client.ts`, which has no scope
  * at all and would leak data across tenants if used directly in a route.
  *
- * Until 1.1.1 ships real sessions, nothing populates `req.auth`, so this middleware
- * has no real caller yet — it exists so the scoping rule is enforced by construction
- * from the first route that needs it, rather than retrofitted later.
+ * Chain it after `authenticate`: `router.use(authenticate, requireTenant)`. The
+ * first tenant-owned resource routes (Client, Product, …) arrive in Phase 2; until
+ * then this has no caller but is kept so the scoping rule is enforced by
+ * construction from the first route that needs it, not retrofitted later.
  */
 export const requireTenant: RequestHandler = (req: Request, _res: Response, next: NextFunction) => {
   if (!req.auth) {

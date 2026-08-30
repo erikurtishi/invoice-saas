@@ -29,6 +29,7 @@ coverage
 playwright-report
 test-results
 
-# Runtime artefacts (generated PDFs, uploaded logos) — never in the repo
-uploads
-storage
+# Runtime artefacts (generated PDFs, uploaded logos) — never in the repo.
+# Anchored to the API's runtime dir so it can't shadow source folders
+# (e.g. apps/api/src/lib/storage/, which is the Storage port — decision D15).
+apps/api/var/

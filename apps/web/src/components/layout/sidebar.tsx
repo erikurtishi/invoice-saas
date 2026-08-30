@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 
 import { cn } from '../../lib/cn';
 import { NAV_ITEMS } from './nav-items';
+import { UserMenu } from './user-menu';
 
 /** Desktop only (`lg:` and up) — see `MobileNav` for the phone/tablet equivalent. */
 export function Sidebar() {
@@ -32,6 +33,7 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
+      <UserMenu />
     </aside>
   );
 }

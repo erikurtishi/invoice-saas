@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { VerifyEmailBanner } from '../auth/verify-email-banner';
 import { OfflineBanner } from '../state/offline-banner';
 import { MobileNav } from './mobile-nav';
 import { Sidebar } from './sidebar';
@@ -16,6 +17,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <OfflineBanner />
         <MobileNav />
+        <VerifyEmailBanner />
         <main className="flex-1">
           <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">{children}</div>
         </main>

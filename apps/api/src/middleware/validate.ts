@@ -27,7 +27,15 @@ export function validate(schemas: ValidateSchemas): RequestHandler {
         Object.assign(req.params, schemas.params.parse(req.params));
       }
       if (schemas.query) {
-        Object.assign(req.query, schemas.query.parse(req.query));
+        // Express 5 makes `req.query` a getter with no setter, so `Object.assign`
+        // onto it is silently discarded — the parsed value (defaults, coercions)
+        // has to be installed as an own property instead.
+        Object.defineProperty(req, 'query', {
+          value: schemas.query.parse(req.query),
+          writable: true,
+          configurable: true,
+          enumerable: true,
+        });
       }
       next();
     } catch (error) {

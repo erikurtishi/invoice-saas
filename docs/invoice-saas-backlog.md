@@ -219,19 +219,86 @@ Overview of the whole epic, with import paths and usage examples, lives in
 Goal: a user can sign up, log in, and configure their business.
 
 ## Epic 1.1 — Authentication
-- [ ] `1.1.1` (L) Email/password signup + login; hashed passwords, secure session or JWT with refresh
-- [ ] `1.1.2` (M) Email verification flow
-- [ ] `1.1.3` (M) Password reset flow (request → emailed token → reset)
-- [ ] `1.1.4` (S) Protected route wrapper on frontend; auth state via TanStack Query
-- [ ] `1.1.5` (S) Logout, session expiry handling, 401 → redirect to login globally
-- [ ] `1.1.6` (M) Rate limiting on auth endpoints (brute-force protection)
+- [x] `1.1.1` (L) Email/password signup + login; hashed passwords, secure session or JWT with refresh
+  - *Access JWT (15m, `Authorization: Bearer`, HS256) + opaque refresh token (30d,
+    httpOnly `refresh_token` cookie scoped to `/auth`, SHA-256 hashed at rest,
+    rotated every `/auth/refresh` with reuse detection that revokes the chain — see
+    decision D12). Passwords: Node `scrypt` (N=2^17), self-describing
+    `scrypt$N$r$p$salt$hash` string, opportunistic rehash on login
+    (`apps/api/src/lib/password.ts`). Service layer `services/auth-service.ts`;
+    thin routes `routes/auth.ts` (`/signup /login /refresh /logout /me`). Web:
+    in-memory access token (never `localStorage`), `lib/api-client.ts` does
+    refresh-and-replay on 401. Shared Zod in `@invoice-saas/shared` (`auth.ts`).*
+- [x] `1.1.2` (M) Email verification flow
+  - *`OneTimeToken` table (`purpose=EMAIL_VERIFICATION`, 24h, single-use, SHA-256
+    hashed, issuing a new one invalidates older). Sent on signup + `POST
+    /auth/verify-email/resend`; consumed at `POST /auth/verify-email`. Mailer is a
+    pluggable port (`mail/mailer.ts`) with a `ConsoleMailer` dev transport that
+    logs the link — real provider is still open (D13). Web: `/verify-email` page
+    (auto-submits token) + persistent `VerifyEmailBanner` in the app shell.*
+- [x] `1.1.3` (M) Password reset flow (request → emailed token → reset)
+  - *`OneTimeToken` (`purpose=PASSWORD_RESET`, 1h). `POST /auth/password/request-reset`
+    always 202 (no account enumeration — X.4.6); `POST /auth/password/reset`
+    consumes the token, sets the new hash, and revokes every refresh token for the
+    user. Web: `/forgot-password` + `/reset-password` pages.*
+- [x] `1.1.4` (S) Protected route wrapper on frontend; auth state via TanStack Query
+  - *`useSession()` = `useQuery(['auth','session'])` hitting `/auth/me`.
+    `<RequireAuth>` (`components/auth/require-auth.tsx`) gates the whole authed
+    route subtree: spinner while pending, `<Navigate to="/login?next=…">` when
+    absent, `<Outlet/>` when present. Login/signup pages bounce an already-authed
+    user away.*
+- [x] `1.1.5` (S) Logout, session expiry handling, 401 → redirect to login globally
+  - *`/auth/logout` revokes the presented refresh token + clears the cookie;
+    `useLogout` also `queryClient.clear()`s so no tenant data survives into the next
+    session on that browser. `api-client` fires `onSessionExpired` when a refresh
+    ultimately fails; `<RequireAuth>` subscribes and redirects to `/login?next=…`.*
+- [x] `1.1.6` (M) Rate limiting on auth endpoints (brute-force protection)
+  - *`express-rate-limit`, in-memory store (single API process — D1), per-IP:
+    credentials (login/signup/reset) 10 / 15 min, refresh 120 / 15 min, email-
+    dispatch (verify-resend, reset-request) 5 / hour. Trips return the standard
+    `RATE_LIMITED` error body. `middleware/rate-limit.ts`.*
 
 ## Epic 1.2 — Tenant creation & business profile
-- [ ] `1.2.1` (M) Signup creates Tenant + User; assigns Free tier automatically
-- [ ] `1.2.2` (M) Business profile form: name, address, tax ID, default currency, default payment terms, default paper size, preferred language
-- [ ] `1.2.3` (M) Logo upload: file validation (type/size), image processing, storage, delete/replace
-- [ ] `1.2.4` (M) Onboarding wizard after first login — profile → optional first client → "create your first invoice" CTA
-- [ ] `1.2.5` (S) Settings page to edit all of the above later
+- [x] `1.2.1` (M) Signup creates Tenant + User; assigns Free tier automatically
+  - *No separate tenant — the user *is* the tenant (D3). Signup (`1.1.1`) already
+    creates the `users` row; this adds a `tier` enum column (`FREE`/`BASIC`/
+    `PREMIUM`, default `FREE`) so every account is Free from creation with no code
+    path. Decision **D14**: minimal column now, superseded by Phase 6's
+    `Subscription` table + entitlement service (`6.1.2`) as the read path — nothing
+    branches on `tier` yet.*
+- [x] `1.2.2` (M) Business profile form: name, address, tax ID, default currency, default payment terms, default paper size, preferred language
+  - *`businessProfileSchema` in `@invoice-saas/shared` (single source for the form
+    resolver and `PATCH /profile` validation). `GET`/`PATCH /profile` in
+    `routes/profile.ts` → `services/profile-service.ts`, operating on the `users`
+    row via raw `prisma` (not `req.db` — that scopes child models, of which the
+    profile has none). `PATCH` is a full replace, not a partial, so "cleared a
+    field" is unambiguous. Web: `BusinessProfileForm` (shared by settings +
+    onboarding) with all five states via `<QueryBoundary>` + `useZodForm` +
+    `<FormField>`; curated Selects for currency / paper size / language.*
+- [x] `1.2.3` (M) Logo upload: file validation (type/size), image processing, storage, delete/replace
+  - *`Storage` port (`lib/storage/`, mirrors the D13 `Mailer` port) with a
+    `LocalDiskStorage` impl served read-only at `/uploads`; decision **D15** — cloud
+    object store swaps in at `storage/index.ts` with no call-site change.
+    `POST`/`DELETE /profile/logo`: multer memory upload (2 MB / one file / PNG-JPEG-
+    WebP allow-list, its errors mapped to the standard `VALIDATION_ERROR` body),
+    then `sharp` re-encodes to a ≤512px WebP (strips EXIF/metadata, normalises
+    format). Stored key carries a random token so a replaced logo gets a fresh URL;
+    the previous file is best-effort deleted. Web: `LogoField` — its own mutations
+    and feedback, deliberately outside the RHF form so a failed upload never blocks
+    saving the profile (Partial state).*
+- [x] `1.2.4` (M) Onboarding wizard after first login — profile → optional first client → "create your first invoice" CTA
+  - *`onboardingCompletedAt` column on `users` (null → not done). `POST
+    /onboarding/complete` stamps it (idempotent) and returns the refreshed public
+    user. Web: `/onboarding` route — authed but outside the app shell, its own
+    focused layout; `AuthedLayout` redirects any authed user with
+    `onboardingCompleted === false` there until it's done. Three steps: business
+    profile (reuses `BusinessProfileForm` in `onboarding` variant) → first-client
+    step (placeholder + skippable until Phase 2 builds Clients) → "create your first
+    invoice" CTA. Existing accounts backfilled to done in the migration.*
+- [x] `1.2.5` (S) Settings page to edit all of the above later
+  - *`/settings` → `BusinessProfilePage`: the same `BusinessProfileForm` in its
+    default `settings` variant (inline "saved" `<FormBanner>` + toast, submit
+    disabled until dirty). Replaced the placeholder route.*
 
 ---
 
@@ -240,18 +307,71 @@ Goal: a user can sign up, log in, and configure their business.
 Goal: reusable data that makes invoice creation fast.
 
 ## Epic 2.1 — Clients
-- [ ] `2.1.1` (M) Client CRUD API (tenant-scoped)
-- [ ] `2.1.2` (M) Client list page: search, sort, pagination, empty state
-- [ ] `2.1.3` (M) Client create/edit form: name, address, email, tax ID, currency override, notes
-- [ ] `2.1.4` (S) Delete client with confirmation; decide behavior for clients referenced by existing invoices (recommend soft delete so historical invoices don't break)
-- [ ] `2.1.5` (S) Inline "add new client" from within the invoice form (modal, no navigation away)
+- [x] `2.1.1` (M) Client CRUD API (tenant-scoped)
+  - *`Client` model (`tenantId` → `users.id`, decision D3) registered in
+    `db/tenant-scope.ts`'s `TENANT_SCOPED_MODELS` — the first tenant-scoped model,
+    so every query is confined by the extension, no `where` clause in the route.
+    `routes/clients.ts` (behind `authenticate` + `requireTenant`) → `services/
+    client-service.ts` (takes the scoped `req.db` as a param). Shared shapes in
+    `packages/shared/src/client.ts`. `middleware/validate.ts` gained an Express-5
+    fix: `req.query` is a getter with no setter, so the parsed value is installed
+    with `Object.defineProperty` instead of a discarded `Object.assign`.*
+- [x] `2.1.2` (M) Client list page: search, sort, pagination, empty state
+  - *`routes/clients/clients-list-page.tsx` → `features/clients/use-clients.ts`
+    (TanStack Query, `keepPreviousData` so paging doesn't flash a skeleton).
+    Debounced search over name / email / tax ID; sort name/-name/newest/oldest;
+    offset pagination (`CLIENT_PAGE_SIZE` = 25). All five states via
+    `<QueryBoundary>` + `<SkeletonTable>`: distinct `nothing-yet` (CTA opens the
+    create dialog) vs `nothing-found` (Clear filters) empty states.*
+- [x] `2.1.3` (M) Client create/edit form: name, address, email, tax ID, currency override, notes
+  - *`components/clients/client-form.tsx` — shared RHF form (`useZodForm`
+    (`clientInputSchema`), inline `<FormField>` errors, server 422s mapped back via
+    `applyFieldErrors`). Address is per-client `STRUCTURED` (line1/line2/city/
+    postal/country) **or** `FREE_TEXT` (one blob) — see decision D16. Currency
+    override reuses `PROFILE_CURRENCIES` + a "Use business default" choice that
+    stores `null`. Notes are a textarea (new `components/ui/textarea.tsx`).*
+- [x] `2.1.4` (S) Delete client with confirmation; decide behavior for clients referenced by existing invoices (recommend soft delete so historical invoices don't break)
+  - *Soft delete (decision D4): `Client.deletedAt` stamped, never removed; every
+    read filters `deletedAt: null`. Confirmation via a new reusable
+    `components/ui/confirm-dialog.tsx`.*
+- [x] `2.1.5` (S) Inline "add new client" from within the invoice form (modal, no navigation away)
+  - *`components/clients/client-form-dialog.tsx` wraps the shared `ClientForm` in
+    the `Modal` primitive with an `onSaved(client)` callback. The list page uses it
+    for "New client" and row-edit today; Phase 4's invoice form drops in the same
+    component to add-and-select without leaving the form.*
 
 ## Epic 2.2 — Products / services
-- [ ] `2.2.1` (M) Product CRUD API (name, description, default price, unit, default tax rate)
-- [ ] `2.2.2` (M) Product list page with search + empty state
-- [ ] `2.2.3` (M) Product create/edit form
-- [ ] `2.2.4` (S) Soft delete; inline add from invoice form
-- [ ] `2.2.5` (S) Product picker component: typeahead search, inserts a line item on select
+- [x] `2.2.1` (M) Product CRUD API (name, description, default price, unit, default tax rate)
+  - *`Product` model (`tenantId` → `users.id`, D3) registered in
+    `TENANT_SCOPED_MODELS`. `routes/products.ts` → `services/product-service.ts`
+    (scoped `req.db`), shapes in `packages/shared/src/product.ts`. Money as
+    integers (decision D17): `defaultPriceMinor` (minor units, tenant default
+    currency, nullable), `defaultTaxRateBp` (basis points, default 0). New
+    `packages/shared/src/money.ts` holds the decimal⇆integer conversions the form
+    uses. Search covers name + description.*
+- [x] `2.2.2` (M) Product list page with search + empty state
+  - *`routes/products/products-list-page.tsx` → `features/products/use-products.ts`.
+    Debounced search; offset pagination (API always paginates, no sort control per
+    the lighter spec here). Five states via `<QueryBoundary>` + `<SkeletonTable>`;
+    `nothing-yet` (CTA → create dialog) vs `nothing-found` (Clear filters). Price
+    column shows the tenant's default currency code from `useBusinessProfile`.*
+- [x] `2.2.3` (M) Product create/edit form
+  - *`components/products/product-form.tsx` — shared RHF form. Price and tax rate
+    are decimal-string inputs (`priceInput` / `taxRateInput`) validated for format
+    + range, converted to minor units / bp on submit via `money.ts`. Inline
+    `<FormField>` errors + `applyFieldErrors` for server 422s.*
+- [x] `2.2.4` (S) Soft delete; inline add from invoice form
+  - *Soft delete (D4): `Product.deletedAt`, every read filters `deletedAt: null`,
+    confirm via the shared `<ConfirmDialog>`. Inline add =
+    `components/products/product-form-dialog.tsx` (shared `ProductForm` in a
+    `Modal`, `onSaved(product)` callback) — list page uses it now; Phase 4's
+    line-item editor drops in the same component.*
+- [x] `2.2.5` (S) Product picker component: typeahead search, inserts a line item on select
+  - *`components/products/product-picker.tsx` — dependency-free combobox (input +
+    positioned listbox, keyboard nav, `aria-*`). Debounced `GET /products?search=`,
+    compact `nothing-found` row with a Clear action (X.7.6). `onSelect(product)` is
+    the whole API; the Phase 4 editor maps the selection onto a new line. No host
+    screen yet — built ready, same as the dialogs.*
 
 ---
 
@@ -260,32 +380,133 @@ Goal: reusable data that makes invoice creation fast.
 The hardest and most differentiating part. Budget the most time here.
 
 ## Epic 3.1 — Template data model & renderer
-- [ ] `3.1.1` (L) Define the template config schema (JSON): block order, visibility toggles, accent color, font pairing, paper size, logo position. Zod-validated, versioned (add a `schemaVersion` field now so future changes don't break saved templates).
-- [ ] `3.1.2` (XL → split) Build the **single render engine**: takes `(templateConfig, invoiceData)` → HTML. This same function powers the live preview and the server-side PDF. Never write two renderers.
-- [ ] `3.1.3` (L) Implement all invoice blocks: header/logo, business info, client info, invoice meta (number/dates), line items table, totals/tax summary, notes, bank details, signature line, footer
-- [ ] `3.1.4` (M) Paper size handling: A4, US Letter, Legal, A5 — exact dimensions, correct margins, correct print CSS
-- [ ] `3.1.5` (M) Multi-page handling: long line-item lists paginate correctly, table headers repeat, totals never orphan on their own page
-- [ ] `3.1.6` (M) Font loading: Noto Sans + Noto Serif (full Latin Extended + Cyrillic) self-hosted; verify Macedonian renders correctly in every template
-- [ ] `3.1.7` (M) Ship 4–6 curated base templates as starting presets
+- [x] `3.1.1` (L) Define the template config schema (JSON): block order, visibility toggles, accent color, font pairing, paper size, logo position. Zod-validated, versioned (add a `schemaVersion` field now so future changes don't break saved templates).
+  - *`packages/shared/src/render/template-config.ts` — `templateConfigSchema`:
+    `schemaVersion` literal (=1), `blockOrder` (refined permutation of the 10
+    blocks), `visibility` (7 toggles incl. the line-item columns), `accentColor`
+    (hex; `TEMPLATE_ACCENT_PRESETS` for the 3.2.5 palette), `fontPairing`
+    (3 curated Noto pairs), `paperSize` (reuses `PAPER_SIZES`), `logo`
+    position/size. Fully defaulted → `defaultTemplateConfig()`. Stored as `jsonb`
+    (D2), always parsed before use.*
+- [x] `3.1.2` (XL → split) Build the **single render engine**: takes `(templateConfig, invoiceData)` → HTML. This same function powers the live preview and the server-side PDF. Never write two renderers.
+  - *`render/render.ts` — `renderInvoice(config, data, { media, assetBaseUrl })` →
+    self-contained `<!doctype html>` (inline `<style>`, `@font-face`, no scripts).
+    Framework-agnostic pure function (decision D18). `media:'screen'` = shadowed
+    page box for the preview iframe; `media:'print'` = `@page` rules for Puppeteer.
+    Inputs re-parsed through Zod at the boundary. Web: `components/template/
+    invoice-preview.tsx` (`<iframe srcDoc sandbox>`); dev harness at
+    `/dev/template-preview`. `render-check.mjs` proves preview HTML === PDF DOM.
+    `render/invoice-math.ts` (`computeInvoiceTotals`) is the one totals calculator
+    both sides call — 4.1.2 will formalise the rounding policy.*
+- [x] `3.1.3` (L) Implement all invoice blocks: header/logo, business info, client info, invoice meta (number/dates), line items table, totals/tax summary, notes, bank details, signature line, footer
+  - *`render/blocks.ts` — one renderer per block, returns `''` when toggled off /
+    empty; `render.ts` walks `config.blockOrder`. Document-type behaviour (spec §5)
+    lives in the meta + totals blocks: due date / "valid until" / "paid on" +
+    method / credit-note ref, and "Amount due" vs "Amount credited" vs "Total".
+    All text escaped via `render/html.ts`.*
+- [x] `3.1.4` (M) Paper size handling: A4, US Letter, Legal, A5 — exact dimensions, correct margins, correct print CSS
+  - *`render/paper.ts` — mm dimensions + `@page size` keyword + per-size margin
+    (A5 tighter). `render/styles.ts` emits `@page{size;margin}` for print and a
+    `.page` box at true mm for screen. Verified against `pdf-smoke`'s expected pt
+    sizes (A4 595×842, Letter 612×792).*
+- [x] `3.1.5` (M) Multi-page handling: long line-item lists paginate correctly, table headers repeat, totals never orphan on their own page
+  - *CSS-only in `styles.ts`: `thead{display:table-header-group}` repeats the
+    line-item header per page; `tr`, `.totals`, `.signature-block` carry
+    `break-inside:avoid`. `render-check.mjs` confirms the `formal` / `statement`
+    presets paginate to 2 pages cleanly.*
+- [x] `3.1.6` (M) Font loading: Noto Sans + Noto Serif (full Latin Extended + Cyrillic) self-hosted; verify Macedonian renders correctly in every template
+  - *Real woff2 subsets (latin + latin-ext + cyrillic, 400/700) committed at
+    `packages/shared/assets/fonts/`, served by the API at `/fonts` (CORS-covered
+    for the cross-origin preview; same-origin for the PDF). `render/fonts.ts`
+    builds the `@font-face` rules and the D10-safe stacks (Noto → Helvetica/Georgia
+    → generic; **never `system-ui`**). `apps/api/scripts/render-check.mjs`
+    (`npm run render:check`) renders all 6 presets × EN/SQ/MK to PDF via Puppeteer
+    and extracts the text back out — Cyrillic (`Фактура`, `Дизајн на бренд
+    идентитет`, `Износ за плаќање`) and Albanian (`Faturë`, `të`) survive in all 18.*
+- [x] `3.1.7` (M) Ship 4–6 curated base templates as starting presets
+  - *`render/presets.ts` — 6 full configs (`classic`, `modern`, `minimal`,
+    `formal`, `compact`, `statement`), each a valid `TemplateConfig`.
+    `DEFAULT_TEMPLATE_PRESET_ID = 'classic'` is the free-tier default (spec §9,
+    3.3.6). `render/sample.ts` provides the trilingual sample invoice used by the
+    presets preview, the dev route and the font check.*
 
 ## Epic 3.2 — Visual template editor
-- [ ] `3.2.1` (L) Editor layout: controls panel + live preview side-by-side (desktop), tabbed (mobile/tablet)
-- [ ] `3.2.2` (L) **Live preview**: pixel-matched HTML rendering at true page proportions, updates instantly on change (debounced). Real PDF is only generated on download/send.
-- [ ] `3.2.3` (M) Block visibility toggles: tax column, discount column, unit price, notes, bank details, signature, footer — every field in the spec
-- [ ] `3.2.4` (L) Block reordering (drag and drop) — use Motion's layout animations for smooth reorder
-- [ ] `3.2.5` (M) Accent color picker with sensible constrained palette + custom hex
-- [ ] `3.2.6` (M) Font pairing selector (curated pairs only, all Cyrillic-safe)
-- [ ] `3.2.7` (M) Logo position/size controls
-- [ ] `3.2.8` (S) Zoom/fit controls on preview
-- [ ] `3.2.9` (M) Editor performance: preview must stay smooth while typing — memoize, debounce, avoid full re-render per keystroke
+- [x] `3.2.1` (L) Editor layout: controls panel + live preview side-by-side (desktop), tabbed (mobile/tablet)
+  - *`components/template/template-editor.tsx` — `<TemplateEditor config onChange
+    toolbar>`. `lg:grid lg:grid-cols-[minmax(320px,380px)_1fr]` side-by-side;
+    `<Tabs>` (Design / Preview) below `lg`. State lives in the parent so the same
+    editor serves 3.3 "New template" and the 4.2.4 inline flow. Dev host at
+    `/dev/template-editor` (replaces the 3.1 preview harness).*
+- [x] `3.2.2` (L) **Live preview**: pixel-matched HTML rendering at true page proportions, updates instantly on change (debounced). Real PDF is only generated on download/send.
+  - *`components/template/invoice-preview.tsx` — the shared `renderInvoiceHtml`
+    (`media:'screen'`) into `<iframe srcDoc sandbox="">`; page box sized to true mm
+    (→px at 96dpi). Verified in a real headless browser: the sandboxed iframe
+    loads the self-hosted Noto woff2 cross-origin and renders `Фактура` in Noto
+    Serif (needed a wildcard `Access-Control-Allow-Origin` on `/fonts` — a
+    sandboxed frame sends `Origin: null`). No PDF on change.*
+- [x] `3.2.3` (M) Block visibility toggles: tax column, discount column, unit price, notes, bank details, signature, footer — every field in the spec
+  - *`editor-controls.tsx` — all 7 `visibility` keys as `<Switch>` rows (new
+    `components/ui/switch.tsx`), grouped "Line-item columns" vs "Optional
+    sections". Hidden blocks show a "Hidden" badge in the reorder list.*
+- [x] `3.2.4` (L) Block reordering (drag and drop) — use Motion's layout animations for smooth reorder
+  - *`block-order-control.tsx` — Motion `Reorder.Group`/`Reorder.Item` +
+    `useDragControls` (drag from the grip handle); layout animation honours
+    `prefers-reduced-motion` via the app-wide `MotionConfig`. Every row also has
+    ↑/↓ buttons — the no-pointer / reduced-motion path (X.3.2). Reorders the full
+    10-block `blockOrder`; result stays a valid permutation.*
+- [x] `3.2.5` (M) Accent color picker with sensible constrained palette + custom hex
+  - *8-swatch palette from `TEMPLATE_ACCENT_PRESETS` + native `<input type=color>`
+    + a hex text field (only a valid `#rrggbb` propagates).*
+- [x] `3.2.6` (M) Font pairing selector (curated pairs only, all Cyrillic-safe)
+  - *Radio list over `FONT_PAIRINGS` (`noto-sans`, `noto-serif-headings`,
+    `noto-serif`) with `FONT_PAIRING_LABELS`. All three resolve to Noto — Cyrillic
+    safe by construction (3.1.6).*
+- [x] `3.2.7` (M) Logo position/size controls
+  - *Segmented controls: position left/center/right (with align icons), size
+    Small/Medium/Large → `config.logo`.*
+- [x] `3.2.8` (S) Zoom/fit controls on preview
+  - *`use-preview-zoom.ts` — `fit` (ResizeObserver scales the page to container
+    width) plus `−`/`%`/`+` stepping through `ZOOM_STEPS`. Applied as a CSS
+    `transform: scale()` on the iframe with the wrapper sized to the scaled box.*
+- [x] `3.2.9` (M) Editor performance: preview must stay smooth while typing — memoize, debounce, avoid full re-render per keystroke
+  - *`InvoicePreview` is `memo`'d; HTML is `useMemo`'d on `config`/`data`, then the
+    `srcDoc` is debounced (~180ms) so holding a key in the hex field doesn't thrash
+    the iframe. Controls emit whole-config immutably; the render call itself is
+    sub-millisecond string building.*
 
 ## Epic 3.3 — Template management
-- [ ] `3.3.1` (M) Template CRUD API (tenant-scoped)
-- [ ] `3.3.2` (M) Templates list page: visual thumbnail previews, not just names
-- [ ] `3.3.3` (S) Duplicate template
-- [ ] `3.3.4` (S) Set default template for the tenant
-- [ ] `3.3.5` (S) Delete template; handle templates referenced by existing invoices
-- [ ] `3.3.6` (M) Free tier restriction: default template only, editor locked with upgrade prompt
+- [x] `3.3.1` (M) Template CRUD API (tenant-scoped)
+  - *`Template` model (`tenantId` → `users.id` D3, `config Json`, `isDefault`,
+    `deletedAt`) in `TENANT_SCOPED_MODELS`. `routes/templates.ts` →
+    `services/template-service.ts` (scoped `req.db`); stored `config` is re-parsed
+    through `templateConfigSchema` on read. Shapes in
+    `packages/shared/src/template.ts`. A tenant with no templates is lazily seeded
+    the `classic` preset as its default.*
+- [x] `3.3.2` (M) Templates list page: visual thumbnail previews, not just names
+  - *`routes/templates/templates-list-page.tsx` — card grid, each card a
+    `components/template/template-thumbnail.tsx` (the shared renderer scaled into a
+    `pointer-events:none` iframe — real designs, not names). `useTemplates()`,
+    `<QueryBoundary>` + `<SkeletonCard>`. Default badge; row-actions menu.*
+- [x] `3.3.3` (S) Duplicate template
+  - *`POST /templates/:id/duplicate` (optional name override; default
+    `"<name> (copy)"`, `isDefault:false`). List-page action → duplicates then opens
+    the copy in the editor.*
+- [x] `3.3.4` (S) Set default template for the tenant
+  - *`isDefault` boolean; `POST /templates/:id/default` swaps it inside a
+    transaction (unset others → set this). Exactly one live default is a service
+    invariant, not a DB constraint. First template a tenant creates auto-becomes
+    the default.*
+- [x] `3.3.5` (S) Delete template; handle templates referenced by existing invoices
+  - *Soft delete (D4): `deletedAt` set, row kept so a historical invoice's
+    reference still resolves (X.7.22). `DELETE` returns the fresh list; refuses
+    (409) the tenant's last template; auto-promotes the oldest remaining to default
+    if the deleted one was default. UI only offers Delete on non-default cards.*
+- [x] `3.3.6` (M) Free tier restriction: default template only, editor locked with upgrade prompt
+  - *New `apps/api/src/lib/entitlements.ts` — the single tier-reading seam
+    (decision D19); `requireCanManageTemplates(userId)` gates every template write
+    with a 403 + upgrade message for `FREE`. Web: `useSession().tier` hides "New
+    template" / card actions and shows an upgrade banner (X.7.17 friendly gate) for
+    free; `/templates/new` and `/templates/:id` redirect free users to the list.*
 
 ---
 

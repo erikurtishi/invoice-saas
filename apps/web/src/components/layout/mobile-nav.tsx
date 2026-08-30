@@ -7,6 +7,7 @@ import { NavLink } from 'react-router-dom';
 import { cn } from '../../lib/cn';
 import { getTransition } from '../../lib/motion-presets';
 import { NAV_ITEMS } from './nav-items';
+import { UserMenu } from './user-menu';
 
 const DRAWER_TRANSITION = { duration: 0.2, ease: [0.16, 1, 0.3, 1] as const };
 const OVERLAY_TRANSITION = { duration: 0.15 };
@@ -96,6 +97,7 @@ export function MobileNav() {
                     </NavLink>
                   ))}
                 </nav>
+                <UserMenu />
               </motion.div>
             </DialogPrimitive.Content>
           </DialogPrimitive.Portal>
