@@ -103,6 +103,19 @@
   }
 }
 
+/* Indeterminate progress sweep — the thin "refreshing" bar `<QueryBoundary>` shows
+   over already-loaded content during a background refetch (backlog 0.4b.1 / X.7.25).
+   Frozen by the reduced-motion block below, which is fine: the bar is decorative,
+   the content underneath stays fully visible. */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
 @layer base {
   * {
     border-color: var(--color-border);

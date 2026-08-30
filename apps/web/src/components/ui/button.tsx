@@ -6,7 +6,7 @@ import { type ButtonHTMLAttributes, forwardRef } from 'react';
 import { cn } from '../../lib/cn';
 
 export const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ' +
+  'relative inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ' +
     'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ' +
     'focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none ' +
     'disabled:opacity-50',
@@ -35,10 +35,10 @@ export interface ButtonProps
   /** Render as the single child element instead of a `<button>` (e.g. a Link). */
   asChild?: boolean;
   /**
-   * Basic loading affordance: spinner replaces the leading position, control is
-   * disabled. Task 0.4b.8 owns the fuller pattern (preserved width so the button
-   * never resizes, standardized across every async action) — this is the primitive
-   * it will build on, not a substitute for it.
+   * Loading state (task 0.4b.8): the control is disabled, `aria-busy` is set, and a
+   * spinner is overlaid **on top of the label** while the label stays in place but
+   * invisible — so the button keeps its exact width and never reflows mid-action.
+   * Standard for every async action (save, send, generate).
    */
   isLoading?: boolean;
 }
@@ -63,8 +63,18 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           children
         ) : (
           <>
-            {isLoading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-            {children}
+            {isLoading && (
+              <span
+                className="absolute inset-0 inline-flex items-center justify-center"
+                aria-hidden="true"
+              >
+                <Loader2 className="size-4 animate-spin" />
+              </span>
+            )}
+            {/* Kept mounted (just hidden) so the button's width doesn't change. */}
+            <span className={cn('inline-flex items-center gap-2', isLoading && 'invisible')}>
+              {children}
+            </span>
           </>
         )}
       </Comp>

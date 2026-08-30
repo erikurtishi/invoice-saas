@@ -1,16 +1,28 @@
 import { RefreshCw, TriangleAlert } from 'lucide-react';
-import { Component, type ErrorInfo, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
+
+import { Button } from './ui/button';
+import { ErrorBoundary, type ErrorFallbackProps } from './state/error-boundary';
 
 /**
- * TODO(X.1.1): route this copy through react-i18next once it is set up.
- * Deliberately hardcoded English for now — see docs/decisions.md, D9. Keeping every
- * string in one object is what makes that a three-line change later.
+ * Global error boundary (tasks 0.1.5 + 0.4b.5).
+ *
+ * The root, last-resort boundary: a render error anywhere it isn't caught closer to
+ * the source lands here instead of on a white screen. The fallback is on the 0.4
+ * design tokens (0.4b.5) — but deliberately standalone (no `AppShell`), because the
+ * shell itself could be what failed. Route-level crashes are caught by a second
+ * `ErrorBoundary` inside the shell (see `App.tsx`), which keeps the nav usable.
+ */
+
+/**
+ * TODO(X.1.1): route this copy through react-i18next once it is set up (D9).
  */
 const COPY = {
   heading: 'Something went wrong',
   description:
     'The page could not be displayed. Your saved work has not been affected — try again, and if the problem continues, reload the page.',
   retry: 'Try again',
+  reload: 'Reload page',
 } as const;
 
 interface Props {
@@ -19,58 +31,41 @@ interface Props {
   onReset?: () => void;
 }
 
-interface State {
-  error: Error | null;
-}
-
-/**
- * Global error boundary (task 0.1.5).
- *
- * A render error must never leave the user on a white screen, so this renders a
- * recoverable fallback instead. The polished version, with the app shell still around
- * it, is task 0.4b.5 — this is the baseline that guarantees the app is never blank.
- */
-export class AppErrorBoundary extends Component<Props, State> {
-  override state: State = { error: null };
-
-  static getDerivedStateFromError(error: Error): State {
-    return { error };
-  }
-
-  override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    // TODO(X.5.5): forward to Sentry once error monitoring is wired up.
-    console.error('Unhandled render error:', error, errorInfo.componentStack);
-  }
-
-  private readonly handleReset = (): void => {
-    this.props.onReset?.();
-    this.setState({ error: null });
-  };
-
-  override render(): ReactNode {
-    if (this.state.error === null) {
-      return this.props.children;
-    }
-
-    return (
-      <div
-        role="alert"
-        className="flex min-h-screen items-center justify-center bg-slate-50 p-6 text-slate-900"
-      >
-        <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-          <TriangleAlert aria-hidden className="size-8 text-amber-500" />
-          <h1 className="mt-4 text-xl font-semibold">{COPY.heading}</h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">{COPY.description}</p>
-          <button
-            type="button"
-            onClick={this.handleReset}
-            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700"
-          >
-            <RefreshCw aria-hidden className="size-4" />
+function FullPageFallback({ error, reset }: ErrorFallbackProps) {
+  return (
+    <div className="flex min-h-svh items-center justify-center bg-background p-6 text-foreground">
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-8 shadow-lg">
+        <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
+          <TriangleAlert className="size-6 text-destructive" aria-hidden />
+        </div>
+        <h1 className="mt-4 text-xl font-semibold">{COPY.heading}</h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{COPY.description}</p>
+        {import.meta.env.DEV && (
+          <pre className="mt-4 max-h-40 overflow-auto rounded bg-muted p-3 text-left text-xs text-muted-foreground">
+            {error.name}: {error.message}
+          </pre>
+        )}
+        <div className="mt-6 flex gap-3">
+          <Button onClick={reset}>
+            <RefreshCw className="size-4" aria-hidden />
             {COPY.retry}
-          </button>
+          </Button>
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            {COPY.reload}
+          </Button>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
+export function AppErrorBoundary({ children, onReset }: Props) {
+  return (
+    <ErrorBoundary
+      fallbackRender={FullPageFallback}
+      {...(onReset !== undefined ? { onReset } : {})}
+    >
+      {children}
+    </ErrorBoundary>
+  );
 }

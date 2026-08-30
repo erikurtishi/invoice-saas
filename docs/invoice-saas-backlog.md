@@ -156,20 +156,61 @@ Goal: an empty but correctly wired app deployed to Hostinger.
 These are the reusable building blocks for the five states. Building them first means every
 later feature gets correct states for free instead of ad-hoc ones per screen.
 
-- [ ] `0.4b.1` (M) `<QueryBoundary>` wrapper: takes a TanStack Query result and renders loading / error / empty / success automatically, with slots to override each. Every list and detail page uses it.
-- [ ] `0.4b.2` (M) Skeleton components matched to real layouts: SkeletonTable, SkeletonCard, SkeletonForm, SkeletonInvoicePreview — same dimensions as the real content so nothing shifts on load
-- [ ] `0.4b.3` (M) `<EmptyState>` component: icon (lucide), heading, description, primary CTA — with two documented variants, "nothing yet" and "nothing found"
-- [ ] `0.4b.4` (M) `<ErrorState>` component: inline and full-page variants, plain-language message, retry action
-- [~] `0.4b.5` (M) Global error boundary with a recoverable fallback UI (not a white screen)
-  - *Baseline shipped in `0.1.5` (`AppErrorBoundary`, wired to TanStack Query's reset). **Remaining**:
-    the designed fallback on `0.4` tokens, and a runtime test — a boundary that has never actually
-    caught anything is not verified.*
-- [ ] `0.4b.6` (M) Toast system: success / error / info / loading→resolved transitions, Motion-animated, queued, dismissible, accessible (`aria-live`)
-- [ ] `0.4b.7` (M) Inline field validation pattern (Zod → React Hook Form → error text under input), consistent across every form
-- [ ] `0.4b.8` (S) Button loading state: disabled + inline spinner + preserved width so buttons don't resize mid-action
-- [ ] `0.4b.9` (S) Offline detection banner ("You're offline — changes won't save")
-- [ ] `0.4b.10` (S) Optimistic update + rollback pattern (TanStack Query mutations) documented once and reused
-- [ ] `0.4b.11` (S) **States storybook/gallery page** (dev-only route) showing every state of every primitive — makes review and QA of states trivial
+Overview of the whole epic, with import paths and usage examples, lives in
+`docs/ui-state-primitives.md`. Live gallery: `/dev/states` (dev builds only).
+
+- [x] `0.4b.1` (M) `<QueryBoundary>` wrapper: takes a TanStack Query result and renders loading / error / empty / success automatically, with slots to override each. Every list and detail page uses it.
+  - *`components/state/query-boundary.tsx`. Reads `isPending`/`isError`/`data`/`isFetching`
+    off the query — no parallel booleans. Precedence: error-with-no-data → first load →
+    empty → success; on success a background refetch shows a thin top bar instead of
+    collapsing to a skeleton (X.7.25). `loading`/`empty`/`error` slots overridable;
+    default `isEmpty` handles `null`, `[]`, `{items:[]}`, `{data:[]}`.*
+- [x] `0.4b.2` (M) Skeleton components matched to real layouts: SkeletonTable, SkeletonCard, SkeletonForm, SkeletonInvoicePreview — same dimensions as the real content so nothing shifts on load
+  - *`components/state/skeletons.tsx`, built on the `Skeleton` primitive (0.4.2). Plus
+    `SkeletonList` as the generic `<QueryBoundary>` fallback. `SkeletonInvoicePreview`
+    holds true A4 proportions via `aspect-ratio` so the preview pane never jumps (X.7.2).*
+- [x] `0.4b.3` (M) `<EmptyState>` component: icon (lucide), heading, description, primary CTA — with two documented variants, "nothing yet" and "nothing found"
+  - *`components/state/empty-state.tsx`. `nothing-yet` (onboarding tone, primary CTA via
+    `action`, inbox icon) vs `nothing-found` (neutral tone, `onClearFilters` renders the
+    standard button, search-x icon) — documented as non-interchangeable. Per-surface copy
+    stays at the call site (X.7.5/X.7.6).*
+- [x] `0.4b.4` (M) `<ErrorState>` component: inline and full-page variants, plain-language message, retry action
+  - *`components/state/error-state.tsx`. `inline` (one widget failed, retries in place —
+    used by `<QueryBoundary>` and per-widget on partial surfaces) and `page` variants.
+    Message from the shared `toUserMessage` (`lib/error-message.ts`); raw error shown only
+    in dev, never in production.*
+- [x] `0.4b.5` (M) Global error boundary with a recoverable fallback UI (not a white screen)
+  - *Reusable `ErrorBoundary` (`components/state/error-boundary.tsx`) with `fallbackRender`.
+    Two mounts: `AppErrorBoundary` (root, standalone full-page fallback on 0.4 tokens — no
+    shell, since the shell could be what broke) and a second instance inside `AppShell`
+    around the router, keyed on pathname, so a route crash keeps the nav usable and
+    navigating away clears it. Runtime-verified via `/dev/states` "Trigger render error":
+    boundary catches, shows the recoverable fallback, "Try again" restores the subtree.*
+- [x] `0.4b.6` (M) Toast system: success / error / info / loading→resolved transitions, Motion-animated, queued, dismissible, accessible (`aria-live`)
+  - *`components/state/toast-viewport.tsx` (`ToastProvider`, mounted once in `main.tsx`) +
+    `hooks/use-toast.ts` (`useToast`). Queue capped at 4 (oldest non-loading dropped),
+    ~5s auto-dismiss (`loading` never), Motion `layout` enter/exit, polite `aria-live`.
+    `toast.promise()` flips one toast id loading→success/error and re-throws.*
+- [x] `0.4b.7` (M) Inline field validation pattern (Zod → React Hook Form → error text under input), consistent across every form
+  - *`lib/use-zod-form.ts` (`useZodForm` — shared resolver + `mode: onBlur` /
+    `reValidateMode: onChange`) + `components/form/field.tsx` (`<FormField>`, owns
+    id/`aria-invalid`/`aria-describedby` wiring, error text under the input, never a
+    top-of-form summary — X.7.12).*
+- [x] `0.4b.8` (S) Button loading state: disabled + inline spinner + preserved width so buttons don't resize mid-action
+  - *`Button` `isLoading`: disables, sets `aria-busy`, overlays the spinner on the label
+    while the label stays mounted but `invisible` — width is preserved, no reflow.*
+- [x] `0.4b.9` (S) Offline detection banner ("You're offline — changes won't save")
+  - *`components/state/offline-banner.tsx`, mounted in `AppShell`. `navigator.onLine` via
+    `useSyncExternalStore` (no effect-fetch, correct under StrictMode). Motion slide-in,
+    warning tokens, `aria-live`.*
+- [x] `0.4b.10` (S) Optimistic update + rollback pattern (TanStack Query mutations) documented once and reused
+  - *`lib/optimistic-mutation.ts` — `optimisticUpdate(qc, key, apply)` returns
+    `{ onMutate, onError, onSettled }`: `cancelQueries` guard, snapshot + restore on
+    error, `invalidateQueries` on settle so the server stays source of truth (4.2.3).
+    Pattern documented in `docs/ui-state-primitives.md`.*
+- [x] `0.4b.11` (S) **States storybook/gallery page** (dev-only route) showing every state of every primitive — makes review and QA of states trivial
+  - *`routes/dev/state-gallery.tsx` at `/dev/states`, gated by `import.meta.env.DEV` so it
+    tree-shakes out of production. Every primitive in every state on one page (X.7.26).*
 
 ---
 

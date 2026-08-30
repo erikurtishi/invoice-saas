@@ -7,6 +7,7 @@ import { BrowserRouter } from 'react-router-dom';
 
 import App from './App.tsx';
 import { AppErrorBoundary } from './components/AppErrorBoundary.tsx';
+import { ToastProvider } from './components/state/toast-viewport.tsx';
 import { TooltipProvider } from './components/ui/tooltip.tsx';
 import './index.css';
 import { queryClient } from './lib/query-client.ts';
@@ -32,7 +33,9 @@ createRoot(rootElement).render(
             <MotionConfig reducedMotion="user">
               <BrowserRouter>
                 <TooltipProvider>
-                  <App />
+                  <ToastProvider>
+                    <App />
+                  </ToastProvider>
                 </TooltipProvider>
               </BrowserRouter>
             </MotionConfig>
