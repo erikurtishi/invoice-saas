@@ -233,6 +233,9 @@ try {
     (await status(() => updateManualGrant(stripeRow!.id, { note: 'x' }))) === 404,
   );
 } finally {
+  await prisma.adminAuditLog.deleteMany({
+    where: { OR: [{ targetTenantId: tenant.id }, { actorUserId: admin.id }] },
+  });
   await prisma.subscription.deleteMany({ where: { tenantId: tenant.id } });
   await prisma.user.deleteMany({ where: { id: { in: [admin.id, tenant.id] } } });
   await prisma.$disconnect();

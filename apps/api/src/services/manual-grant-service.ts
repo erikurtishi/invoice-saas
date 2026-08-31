@@ -9,6 +9,7 @@ import type {
 import { prisma } from '../db/client.js';
 import { ApiError } from '../lib/api-error.js';
 import { resolveEntitlements } from '../lib/entitlements.js';
+import { recordAdminAction } from './admin-audit-service.js';
 
 /**
  * Admin-issued cash grants (backlog Epic 6.3, spec §9). A manual grant is just a
@@ -24,6 +25,11 @@ import { resolveEntitlements } from '../lib/entitlements.js';
  * Automatic expiry (6.3.3) needs no code here: `resolveEntitlements` flips a
  * granting row past its `endDate` to `EXPIRED` on the next lookup, and
  * `scripts/expire-grants.ts` does the same sweep for a crontab.
+ *
+ * Every mutation here appends an `admin_audit_logs` row via `recordAdminAction`
+ * (backlog 8.1.2). That call is best-effort — it never throws — so a logging
+ * failure can't fail an otherwise-successful grant. `actingUserId` (the admin, or
+ * `null` for the CLI) is threaded through all three writers for the trail.
  */
 
 const DAY_MS = 86_400_000;
@@ -94,13 +100,36 @@ export async function createManualGrant(
   // Reconcile the `users.tier` cache (and lazily EXPIRE the row if it was
   // back-dated into the past), then return the reconciled state.
   await resolveEntitlements(tenant.id).catch(() => undefined);
+
+  await recordAdminAction({
+    actorUserId: actingUserId,
+    action: 'grant.create',
+    targetTenantId: tenant.id,
+    subjectType: 'Subscription',
+    subjectId: row.id,
+    summary: `Granted ${input.tier} to ${tenant.email} (${input.startDate} → ${input.endDate})`,
+    metadata: {
+      tier: input.tier,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      note: input.note ?? null,
+    },
+  });
+
   return toManualGrant(await reload(row.id));
 }
 
-/** Extend / shorten / re-note a grant (backlog 6.3.4). */
+/** `YYYY-MM-DD` slice of a Date, for audit-log diffs. */
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/** Extend / shorten / re-note a grant (backlog 6.3.4). `actingUserId` is the
+ *  admin, or `null` for the CLI. */
 export async function updateManualGrant(
   id: string,
   input: ManualGrantUpdate,
+  actingUserId: string | null = null,
 ): Promise<ManualGrant> {
   const row = await prisma.subscription.findFirst({ where: { id, source: 'MANUAL' } });
   if (!row) throw ApiError.notFound('Manual grant not found.');
@@ -118,20 +147,61 @@ export async function updateManualGrant(
 
   await prisma.subscription.update({ where: { id }, data });
   await resolveEntitlements(row.tenantId).catch(() => undefined);
+
+  // Only the fields that actually moved, old → new.
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  if (input.startDate !== undefined && isoDay(row.startDate) !== input.startDate) {
+    changes.startDate = { from: isoDay(row.startDate), to: input.startDate };
+  }
+  if (input.endDate !== undefined && (!row.endDate || isoDay(row.endDate) !== input.endDate)) {
+    changes.endDate = { from: row.endDate ? isoDay(row.endDate) : null, to: input.endDate };
+  }
+  if (input.note !== undefined && (row.note ?? null) !== (input.note ?? null)) {
+    changes.note = { from: row.note ?? null, to: input.note ?? null };
+  }
+  if (data.status === 'ACTIVE' && row.status !== 'ACTIVE') {
+    changes.status = { from: row.status, to: 'ACTIVE' };
+  }
+  await recordAdminAction({
+    actorUserId: actingUserId,
+    action: 'grant.update',
+    targetTenantId: row.tenantId,
+    subjectType: 'Subscription',
+    subjectId: row.id,
+    summary: `Modified ${row.tier} grant ${row.id} (${Object.keys(changes).join(', ') || 'no change'})`,
+    metadata: { tier: row.tier as 'BASIC' | 'PREMIUM', changes },
+  });
+
   return toManualGrant(await reload(id));
 }
 
 /** Revoke a grant immediately (backlog 6.3.4). The row is kept (decision D5 —
- *  "both records preserved"), just marked `CANCELED` and ended now. */
-export async function revokeManualGrant(id: string): Promise<ManualGrant> {
+ *  "both records preserved"), just marked `CANCELED` and ended now.
+ *  `actingUserId` is the admin, or `null` for the CLI. */
+export async function revokeManualGrant(
+  id: string,
+  actingUserId: string | null = null,
+): Promise<ManualGrant> {
   const row = await prisma.subscription.findFirst({ where: { id, source: 'MANUAL' } });
   if (!row) throw ApiError.notFound('Manual grant not found.');
 
+  const endedAt = new Date();
   await prisma.subscription.update({
     where: { id },
-    data: { status: 'CANCELED', endDate: new Date() },
+    data: { status: 'CANCELED', endDate: endedAt },
   });
   await resolveEntitlements(row.tenantId).catch(() => undefined);
+
+  await recordAdminAction({
+    actorUserId: actingUserId,
+    action: 'grant.revoke',
+    targetTenantId: row.tenantId,
+    subjectType: 'Subscription',
+    subjectId: row.id,
+    summary: `Revoked ${row.tier} grant ${row.id}`,
+    metadata: { tier: row.tier as 'BASIC' | 'PREMIUM', endedAt: endedAt.toISOString() },
+  });
+
   return toManualGrant(await reload(id));
 }
 

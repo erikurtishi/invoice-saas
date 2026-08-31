@@ -9,7 +9,13 @@ import { FONTS_DIR, FONTS_URL_PATH } from './lib/render-assets.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { activityRouter } from './routes/activity.js';
+import { adminAuditLogRouter } from './routes/admin/audit-log.js';
+import { adminBillingRouter } from './routes/admin/billing.js';
 import { adminGrantsRouter } from './routes/admin/grants.js';
+import { adminOverviewRouter } from './routes/admin/overview.js';
+import { adminSupportRouter } from './routes/admin/support.js';
+import { adminTenantsRouter } from './routes/admin/tenants.js';
+import { adminUsageRouter } from './routes/admin/usage.js';
 import { aiRouter } from './routes/ai.js';
 import { authRouter } from './routes/auth.js';
 import { billingRouter } from './routes/billing.js';
@@ -85,6 +91,12 @@ app.use('/activity', activityRouter);
 app.use('/ai', aiRouter);
 app.use('/billing', billingRouter);
 app.use('/admin/grants', adminGrantsRouter);
+app.use('/admin/audit-log', adminAuditLogRouter);
+app.use('/admin/overview', adminOverviewRouter);
+app.use('/admin/tenants', adminTenantsRouter);
+app.use('/admin/usage', adminUsageRouter);
+app.use('/admin/billing', adminBillingRouter);
+app.use('/admin/support', adminSupportRouter);
 
 // Route modules are mounted above this line. Anything unmatched falls through to
 // these two — order matters, both must stay last (backlog 0.2.3, 0.2.5).

@@ -139,6 +139,14 @@ model User {
   /// 8.1.1 — admin routes double-check this; it is never the only gate.
   role UserRole @default(OWNER)
 
+  /// Set by an admin "disable account" action (backlog 8.3.4). While non-null the
+  /// account cannot log in, refresh a session, or reach any tenant route
+  /// (`middleware/tenant.ts` re-checks it per request); existing refresh tokens
+  /// are revoked at disable time. Cleared on re-enable. `disabledReason` is
+  /// free-text support context; who/when is in the `AdminAuditLog`.
+  disabledAt     DateTime?
+  disabledReason String?
+
   /// Billing tier, assigned FREE at signup (1.2.1). See the `UserTier` note above:
   /// Phase 6's entitlement service supersedes this as the read path.
   tier UserTier @default(FREE)
@@ -195,6 +203,10 @@ model User {
   usageCounter  UsageCounter?
 
   aiGenerationLogs AiGenerationLog[]
+
+  /// Support cases about this tenant (backlog 8.6.1). `onDelete: SetNull` — a
+  /// deleted tenant's support history survives with just the email snapshot.
+  supportTickets SupportTicket[]
 
   @@map("users")
 }
@@ -780,4 +792,140 @@ model OneTimeToken {
 
   @@index([userId, purpose])
   @@map("one_time_tokens")
+}
+
+/// Audit trail for privileged admin-center actions (backlog 8.1.2 — "who granted
+/// what, when"). Every mutating admin operation appends one row here through
+/// `services/admin-audit-service.ts`, which is the *only* writer and only ever
+/// inserts — there is deliberately no update and no delete path, matching the
+/// append-only `InvoiceHistoryEvent` log.
+///
+/// **Not tenant-scoped.** Admin actions are cross-tenant by definition, so this
+/// model is absent from `TENANT_SCOPED_MODELS` and is written/read on the
+/// unscoped `prisma` client. The tenant a given action touched is recorded in
+/// `targetTenantId` (a plain column, not a `tenantId` the scope extension would
+/// hijack), alongside a `targetTenantEmail` snapshot so the entry stays readable
+/// after the tenant is deleted.
+///
+/// `actorUserId` / `actorEmail` are the admin who acted; both are null for an
+/// action taken from a CLI script (`npm run grant`) with no `--by`. `action` is a
+/// dotted machine slug (`grant.create`, `grant.update`, `grant.revoke`; future
+/// epics add `account.disable`, `tenant.delete`, …). `summary` is a rendered
+/// one-line description for the admin UI; `metadata` is a small JSON bag of
+/// before/after detail whose keys depend on `action`.
+model AdminAuditLog {
+  id String @id @default(cuid())
+
+  /// The admin `users.id` that performed the action; null for a CLI-issued one.
+  /// Not a Prisma relation — the write path stays a plain insert and the row
+  /// outlives the user.
+  actorUserId String?
+  /// Email snapshot of the actor at the time of the action (null for CLI).
+  actorEmail  String?
+
+  /// Dotted machine slug for the operation, e.g. `grant.create`.
+  action String
+
+  /// The tenant this action affected, if any (a plain column — see the model
+  /// note on why it is not called `tenantId`).
+  targetTenantId    String?
+  /// Email snapshot of the affected tenant, kept readable after deletion.
+  targetTenantEmail String?
+
+  /// The specific record the action operated on, e.g. `"Subscription"` + the
+  /// grant id. Both null for actions that don't target a single row.
+  subjectType String?
+  subjectId   String?
+
+  /// Rendered one-line description shown in the admin activity view.
+  summary String
+
+  /// `action`-dependent JSON detail (before/after values), `{}` when none.
+  metadata Json @default("{}")
+
+  /// When the action happened. The row never changes, so there is no `updatedAt`.
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([targetTenantId, createdAt])
+  @@index([action, createdAt])
+  @@map("admin_audit_logs")
+}
+
+/// Lifecycle of a support case (backlog 8.6.1). `PENDING` = waiting on the tenant.
+enum SupportTicketStatus {
+  OPEN
+  PENDING
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+}
+
+/// Who a `SupportMessage` is from. `TENANT` messages are the admin *logging* what
+/// the tenant said over email or a call — there is no tenant-facing support flow
+/// (decision: admin-only case tracker).
+enum SupportMessageAuthor {
+  ADMIN
+  TENANT
+}
+
+/// One support case, internal to the admin center (backlog 8.6.1, spec §12
+/// "Support"). Admin-created only — nothing tenant-facing writes here.
+///
+/// `tenant` is `onDelete: SetNull`: a deleted tenant's cases stay, with
+/// `tenantEmail` as the readable snapshot (same intent as `AdminAuditLog`).
+/// Cross-tenant by nature — listed in `TENANT_SCOPED_MODELS` only as a guard
+/// against a stray `req.db.supportTicket` read; the admin service uses the
+/// unscoped client with explicit filters.
+model SupportTicket {
+  id          String  @id @default(cuid())
+  tenantId    String?
+  tenant      User?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  /// Snapshot of the tenant's email at open time — also the only tenant handle
+  /// when the address matched no account.
+  tenantEmail String?
+
+  subject  String
+  status   SupportTicketStatus   @default(OPEN)
+  priority SupportTicketPriority @default(NORMAL)
+
+  /// Admin `users.id` who opened the case, and the admin currently assigned.
+  /// Plain columns, not relations — the write path stays a simple insert.
+  openedByUserId String?
+  assigneeUserId String?
+
+  messages SupportMessage[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Set when `status` becomes `CLOSED`; cleared on reopen.
+  closedAt  DateTime?
+
+  @@index([status, updatedAt])
+  @@index([tenantId, createdAt])
+  @@index([assigneeUserId, status])
+  @@map("support_tickets")
+}
+
+/// One message in a support thread (backlog 8.6.1). Append-only in practice —
+/// the service only ever inserts.
+model SupportMessage {
+  id       String        @id @default(cuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  author       SupportMessageAuthor
+  /// The admin `users.id` who wrote or logged this message.
+  authorUserId String?
+  body         String
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+  @@map("support_messages")
 }

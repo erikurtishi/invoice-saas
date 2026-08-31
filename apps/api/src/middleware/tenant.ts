@@ -1,5 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
+import { prisma } from '../db/client.js';
 import { scopedPrisma, type ScopedPrismaClient } from '../db/tenant-scope.js';
 import { ApiError } from '../lib/api-error.js';
 
@@ -25,10 +26,30 @@ declare module 'express-serve-static-core' {
  * first tenant-owned resource routes (Client, Product, …) arrive in Phase 2; until
  * then this has no caller but is kept so the scoping rule is enforced by
  * construction from the first route that needs it, not retrofitted later.
+ *
+ * It also re-reads `disabledAt` from the database on every call (backlog 8.3.4):
+ * a disabled account's still-valid access token must stop working now, not when
+ * the JWT expires — the same reason `requireAdmin` re-reads `role`.
  */
-export const requireTenant: RequestHandler = (req: Request, _res: Response, next: NextFunction) => {
+export const requireTenant: RequestHandler = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+) => {
   if (!req.auth) {
     next(ApiError.unauthorized());
+    return;
+  }
+  const user = await prisma.user.findUnique({
+    where: { id: req.auth.userId },
+    select: { disabledAt: true },
+  });
+  if (!user) {
+    next(ApiError.unauthorized());
+    return;
+  }
+  if (user.disabledAt !== null) {
+    next(ApiError.forbidden('This account has been disabled. Contact support.'));
     return;
   }
   req.db = scopedPrisma(req.auth.userId);

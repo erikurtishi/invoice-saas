@@ -984,32 +984,147 @@ The hardest and most differentiating part. Budget the most time here.
 Internal only, gated by admin role, never visible to tenants.
 
 ## Epic 8.1 — Access
-- [ ] `8.1.1` (M) Admin role on user model; separate route namespace; all admin endpoints double-check the role
-- [ ] `8.1.2` (S) Admin actions are audit-logged (who granted what, when)
+- [x] `8.1.1` (M) Admin role on user model; separate route namespace; all admin endpoints double-check the role
+  - *Built ahead of this epic for the Epic 6.3 manual-grant API: `UserRole` enum
+    (`OWNER` default / `ADMIN`) + `users.role`; `middleware/require-admin.ts`
+    re-reads the role from the DB on every call (a revoked admin loses access
+    without waiting for their JWT to expire); the `/admin/*` namespace
+    (`/admin/grants`, `/admin/audit-log`) mounts `authenticate` + `requireAdmin`
+    per router. `npm run set-admin -w @invoice-saas/api -- --email <e>` promotes a
+    user until the admin center has the UI.*
+- [x] `8.1.2` (S) Admin actions are audit-logged (who granted what, when)
+  - *New `AdminAuditLog` table (migration `20260831030000_add_admin_audit_log`) —
+    append-only, **not** tenant-scoped (admin actions are cross-tenant): actor +
+    affected tenant are plain columns with email snapshots that survive deletion.
+    `services/admin-audit-service.ts` is the only writer (`recordAdminAction`,
+    insert-only, best-effort — never fails the action it records) and read path
+    (`listAdminAuditLog`, filter by actor/tenant/action/date, paginated).
+    `manual-grant-service` emits `grant.create` / `grant.update` (with a changed-
+    fields diff) / `grant.revoke`; `actingUserId` is threaded through all three.
+    `GET /admin/audit-log` exposes it; shapes in `@invoice-saas/shared` (`admin.ts`).
+    `npm run admin:check -w @invoice-saas/api`.*
 
 ## Epic 8.2 — Overview
-- [ ] `8.2.1` (M) Metrics dashboard: MRR, active subs by tier, new signups (day/week/month), churn, Free→paid conversion rate
-- [ ] `8.2.2` (M) Charts for signups and revenue over time
+> **Backend done; admin UI deferred.** The metrics + time-series endpoints below
+> are built and checked; the dashboard *screens* wait on the `/admin/*` web shell
+> (the deferred route-restructure task). Charts will use `recharts` when the UI
+> lands.
+- [~] `8.2.1` (M) Metrics dashboard: MRR, active subs by tier, new signups (day/week/month), churn, Free→paid conversion rate
+  - *`GET /admin/overview` (`routes/admin/overview.ts` → `services/admin-overview-service.ts`,
+    unscoped, read-only). Computed live from `User` + `Subscription`: **MRR** =
+    live Stripe subs only (`PLAN_CATALOG` prices, minor units), by tier, with a
+    `PAST_DUE` "at risk" slice — manual grants excluded (session decision).
+    **activeSubscriptions** counts both sources (ACTIVE|PAST_DUE inside window),
+    by tier + source. **signups** today/7d/30d/total by `createdAt` UTC.
+    **churn** = rows whose window closed this UTC month; `rateBps` =
+    churned/(activeNow+churned), a documented approximation. **conversion** =
+    tenants that ever held any `Subscription` row / all tenants, in bps. Shapes
+    in `@invoice-saas/shared` (`admin.ts`). `npm run overview:check`.*
+- [~] `8.2.2` (M) Charts for signups and revenue over time
+  - *`GET /admin/overview/signups?days=` (1 bucket/day, zero-filled, ≤365) and
+    `GET /admin/overview/revenue?months=` (month-end MRR, ≤36). Separate
+    endpoints so a slow series can't blank the headline numbers (X.7.20). The
+    revenue series is `reconstructed: true` — rebuilt from current Stripe rows'
+    start/end dates and current tier, so no plan-change/refund history; the UI
+    labels it an estimate.*
 
 ## Epic 8.3 — Tenant management
-- [ ] `8.3.1` (M) Tenant list: search, signup date, tier, source, invoices created, last active
-- [ ] `8.3.2` (M) Tenant detail: usage summary, subscription history, view-only data access for support
-- [ ] `8.3.3` (M) **Grant/extend/revoke manual subscription** (links to Epic 6.3)
-- [ ] `8.3.4` (S) Disable / re-enable an account
-- [ ] `8.3.5` (S) Delete a tenant and all its data (GDPR-style deletion request)
+> **Backend done; admin screens deferred** to the `/admin/*` web-shell task
+> (same as 8.2). API + enforcement + checks are in place.
+- [~] `8.3.1` (M) Tenant list: search, signup date, tier, source, invoices created, last active
+  - *`GET /admin/tenants` (`routes/admin/tenants.ts` → `services/admin-tenant-service.ts`,
+    unscoped). `q` matches email/businessName (insensitive contains); filters
+    `tier` / `source` (derived from live `Subscription` rows, resolved to matching
+    ids first so DB pagination stays correct) / `status` (active|disabled);
+    sorts newest|oldest|email. Each row carries effective tier + access source,
+    `invoicesCreated` (`UsageCounter.lifetimeInvoicesGenerated`), `lastActiveAt`
+    (latest `InvoiceHistoryEvent` — a proxy; no session log), `disabledAt`.*
+- [~] `8.3.2` (M) Tenant detail: usage summary, subscription history, view-only data access for support
+  - *`GET /admin/tenants/:id` — profile + live `resolveEntitlements` + usage
+    summary (lifetime/period counters, client/product/template counts, invoices
+    by status, AI generations + `costMicros` sum) + full subscription history
+    (both sources, newest first) + last 10 invoice history events. Deep browsing
+    of the tenant's own invoices/clients is left to the UI.*
+- [x] `8.3.3` (M) **Grant/extend/revoke manual subscription** (links to Epic 6.3)
+  - *Delivered by Epic 6.3's `/admin/grants` API, now audit-logged (8.1.2:
+    `grant.create` / `grant.update` / `grant.revoke`). Also surfaced read-only in
+    8.3.2's `subscriptionHistory`. The grant *form* is 6.3.2 (deferred UI).*
+- [~] `8.3.4` (S) Disable / re-enable an account
+  - *`users.disabledAt` + `disabledReason` (migration `20260831040000_add_user_disabled`).
+    `POST /admin/tenants/:id/disable` (body `{ reason? }`) / `/enable` —
+    idempotent, audit-logged (`account.disable` / `account.enable`), refuse an
+    `ADMIN` target or the caller's own account. Enforcement: `middleware/tenant.ts`
+    re-reads `disabledAt` per request (403), `auth-service` `login` +
+    `rotateRefreshToken` reject it, and disable revokes all refresh tokens so the
+    session dies on next refresh. `npm run tenants:check`.*
+- [~] `8.3.5` (S) Delete a tenant and all its data (GDPR-style deletion request)
+  - *`DELETE /admin/tenants/:id` — hard delete. Every child table is
+    `onDelete: Cascade` from `users`, so one `prisma.user.delete` wipes clients,
+    products, templates, invoices (+ line items), history, numbering,
+    subscriptions, usage, AI logs and tokens; the logo file is removed via the
+    storage port (PDFs aren't persisted). Same ADMIN/self guard. The
+    `tenant.delete` audit row is kept (AdminAuditLog is not FK-linked) with an
+    email snapshot + `deletedCounts`.*
 
 ## Epic 8.4 — Cost & usage monitoring
-- [ ] `8.4.1` (M) AI generations consumed vs. limits, per tenant and in aggregate, with estimated cost
-- [ ] `8.4.2` (S) Email send volume
-- [ ] `8.4.3` (S) Storage usage (PDFs, logos)
-- [ ] `8.4.4` (S) Alerting when AI cost or send volume spikes unexpectedly
+> **Backend done; admin screens deferred** to the `/admin/*` web-shell task.
+> `services/admin-usage-service.ts` + `routes/admin/usage.ts` (`/admin/usage/*`,
+> behind `authenticate` + `requireAdmin`); one endpoint per widget so a slow scan
+> can't blank the panel (X.7.20). `npm run usage:check`.
+- [~] `8.4.1` (M) AI generations consumed vs. limits, per tenant and in aggregate, with estimated cost
+  - *`GET /admin/usage/ai?days=&limit=` — window totals from `AiGenerationLog`
+    (generations, SUCCESS count, by-status, `costMicros` sum, token sums),
+    `currentPeriod` = live `UsageCounter` consumption across every tenant on the
+    current month key vs the Premium cap (`PREMIUM_AI_MONTHLY_LIMIT`), and the
+    top `limit` tenants by spend with their current-month counter.*
+- [~] `8.4.2` (S) Email send volume
+  - *`GET /admin/usage/email?days=&limit=` — from `SENT` `InvoiceHistoryEvent`
+    rows (one per successful send; no dedicated email log). Total, zero-filled
+    daily buckets, top `limit` tenants.*
+- [~] `8.4.3` (S) Storage usage (PDFs, logos)
+  - *`GET /admin/usage/storage?limit=` — logos only; PDFs are streamed, never
+    persisted, so `pdfBytes` is always 0. Sizes come from a new
+    `Storage.sizeOf(key)` port method (fs.stat in `LocalDiskStorage`); a
+    `logoUrl` with no file on disk reports `bytes: null`.*
+- [~] `8.4.4` (S) Alerting when AI cost or send volume spikes unexpectedly
+  - *`GET /admin/usage/anomalies` — last-24h AI spend and email sends vs the mean
+    of the preceding 7 days; `flagged` when the ratio ≥ `USAGE_SPIKE_RATIO_BPS`
+    (3×) or there is fresh volume against a zero baseline. Surfaces the signal
+    only — routing it to email/Slack is deferred.*
 
 ## Epic 8.5 — Billing view
-- [ ] `8.5.1` (M) Stripe subscriptions list, failed payments, upcoming renewals
-- [ ] `8.5.2` (S) Manual grants listed alongside, labeled by source, sorted by expiry
+> **Backend done; admin screens deferred.** `services/admin-billing-service.ts` +
+> `routes/admin/billing.ts` (`/admin/billing/*`, behind `authenticate` +
+> `requireAdmin`). `npm run billing:check`.
+- [~] `8.5.1` (M) Stripe subscriptions list, failed payments, upcoming renewals
+  - *`GET /admin/billing/subscriptions?source=&status=&sort=&page=&pageSize=` —
+    unified list, each row `source`-labelled with tenant identity + computed
+    `effectiveEnd` (`endDate ?? currentPeriodEnd`) / `daysUntilEnd` (signed;
+    null for an open-ended sub), plus a `summary` (byStatus / bySource /
+    cancelingAtPeriodEnd) over the whole source-filtered set. Sorted + paged in
+    memory (the table is small). `GET /admin/billing/attention?renewalWindowDays=`
+    → `failedPayments` (Stripe `PAST_DUE` — per-invoice detail stays in Stripe,
+    we only persist sub state) and `upcomingRenewals` (Stripe ACTIVE, not
+    cancelling, `currentPeriodEnd` inside the window).*
+- [~] `8.5.2` (S) Manual grants listed alongside, labeled by source, sorted by expiry
+  - *Same `/admin/billing/subscriptions` endpoint: `source=manual` (or `all`) and
+    `sort=expiry` orders by `effectiveEnd` ascending (nearest / already-lapsed
+    first), with `note` + `grantedByUserId` on each manual row.*
 
 ## Epic 8.6 — Support
-- [ ] `8.6.1` (M) Simple ticket/message inbox tied to tenant records for context
+- [~] `8.6.1` (M) Simple ticket/message inbox tied to tenant records for context
+  - *Backend done; admin inbox screen deferred to the `/admin/*` web shell.
+    **Admin-only case tracker** (session decision — there is no tenant-facing
+    support flow anywhere in the spec). New `SupportTicket` + `SupportMessage`
+    (migration `20260831050000_add_support_tickets`): ticket `onDelete: SetNull`
+    on the tenant so history survives deletion (with `tenantEmail` snapshot); a
+    ticket opened against an unmatched email still gets created (`tenantId`
+    null). `services/admin-support-service.ts` + `routes/admin/support.ts`
+    (`/admin/support/tickets` — list with subject/status/tenant/assignee filters
+    + global open/pending counts; `POST` open; `GET /:id` thread; `PATCH /:id`
+    status/priority/assignee/subject; `POST /:id/messages` append). Audit log
+    covers lifecycle only — `support.ticket.open` / `.close` / `.reopen`, not
+    routine edits. Assignee must be an existing admin. `npm run support:check`.*
 
 ---
 

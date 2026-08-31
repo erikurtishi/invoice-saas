@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { PutObject, Storage } from './storage.js';
@@ -34,6 +34,14 @@ export class LocalDiskStorage implements Storage {
 
   async delete(key: string): Promise<void> {
     await rm(this.resolve(key), { force: true });
+  }
+
+  async sizeOf(key: string): Promise<number | null> {
+    try {
+      return (await stat(this.resolve(key))).size;
+    } catch {
+      return null;
+    }
   }
 
   urlFor(key: string): string {

@@ -33,6 +33,10 @@ const TENANT_SCOPED_MODELS: readonly Prisma.ModelName[] = [
   // writer (`services/ai-draft-service.ts`) uses the unscoped client with an
   // explicit `tenantId`. Admin cost reads (8.4.1) go through the scoped client.
   'AiGenerationLog',
+  // Support tickets (Epic 8.6) carry a `tenantId` too. Admin-only in practice —
+  // `services/admin-support-service.ts` uses the unscoped client — so this is
+  // purely a guard against a stray `req.db.supportTicket` read.
+  'SupportTicket',
 ];
 
 /** Operations that filter rows via a `where` clause. */

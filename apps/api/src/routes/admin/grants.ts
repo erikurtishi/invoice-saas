@@ -66,7 +66,7 @@ adminGrantsRouter.patch(
   '/:id',
   validate({ params: idParamSchema, body: manualGrantUpdateSchema }),
   async (req: Request<{ id: string }, unknown, ManualGrantUpdate>, res) => {
-    res.json(await updateManualGrant(req.params.id, req.body));
+    res.json(await updateManualGrant(req.params.id, req.body, req.auth!.userId));
   },
 );
 
@@ -74,6 +74,6 @@ adminGrantsRouter.delete(
   '/:id',
   validate({ params: idParamSchema }),
   async (req: Request<{ id: string }>, res) => {
-    res.json(await revokeManualGrant(req.params.id));
+    res.json(await revokeManualGrant(req.params.id, req.auth!.userId));
   },
 );

@@ -149,6 +149,11 @@ export async function login(
     throw ApiError.unauthorized('Email or password is incorrect.');
   }
 
+  // A disabled account (backlog 8.3.4) authenticates but gets no session.
+  if (user.disabledAt !== null) {
+    throw ApiError.forbidden('This account has been disabled. Contact support.');
+  }
+
   // Opportunistically upgrade a hash written with older parameters.
   if (needsRehash(user.passwordHash)) {
     const upgraded = await hashPassword(input.password);
@@ -185,6 +190,12 @@ export async function rotateRefreshToken(
     throw ApiError.unauthorized('Your session has expired. Please sign in again.');
   }
 
+  // Disabled between refreshes (backlog 8.3.4) — end the session here too. Disable
+  // also revokes outstanding refresh tokens, so this is the belt to that braces.
+  if (existing.user.disabledAt !== null) {
+    throw ApiError.forbidden('This account has been disabled. Contact support.');
+  }
+
   const issued = await issueSession(existing.user, ctx);
   await prisma.refreshToken.update({
     where: { id: existing.id },
@@ -207,6 +218,13 @@ async function revokeAllForUser(userId: string): Promise<void> {
     where: { userId, revokedAt: null },
     data: { revokedAt: new Date() },
   });
+}
+
+/** Force every session for a user to end — used by the admin "disable account"
+ *  action (backlog 8.3.4) so a disable takes effect on the next refresh even
+ *  before the current access token expires. */
+export async function revokeAllSessions(userId: string): Promise<void> {
+  await revokeAllForUser(userId);
 }
 
 // --- Email verification ----------------------------------------------------

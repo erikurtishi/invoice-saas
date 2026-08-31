@@ -22,6 +22,9 @@ export interface Storage {
   put(object: PutObject): Promise<{ key: string; url: string }>;
   /** Remove an object. A missing key is not an error (idempotent delete). */
   delete(key: string): Promise<void>;
+  /** Byte size of an object, or `null` if it does not exist. For the admin
+   * storage-usage view (backlog 8.4.3). */
+  sizeOf(key: string): Promise<number | null>;
   /** The root-relative URL an object with this key is served at. */
   urlFor(key: string): string;
   /** Extract the storage key from a URL this store produced, or `null` if the URL
