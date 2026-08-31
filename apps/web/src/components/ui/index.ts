@@ -4,6 +4,7 @@ export * from './confirm-dialog';
 export * from './dropdown-menu';
 export * from './input';
 export * from './modal';
+export * from './record-card';
 export * from './select';
 export * from './skeleton';
 export * from './switch';

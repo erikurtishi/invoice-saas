@@ -182,8 +182,15 @@ model User {
   /// due-date calculation (4.1.1) is a plain date add, not a parser.
   defaultPaymentTermsDays Int @default(14)
 
-  defaultPaperSize  PaperSize @default(A4)
-  preferredLanguage Language  @default(EN)
+  defaultPaperSize PaperSize @default(A4)
+
+  /// Language of the app UI (X.1.4) — the web app drives react-i18next from this.
+  uiLanguage Language @default(EN)
+
+  /// Default language for *printed invoices* (spec §10). Seeds the invoice form's
+  /// per-document language; never affects the app UI. Split from a single
+  /// `preferredLanguage` in migration `20260831060000_split_ui_invoice_language`.
+  invoiceLanguage Language @default(EN)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

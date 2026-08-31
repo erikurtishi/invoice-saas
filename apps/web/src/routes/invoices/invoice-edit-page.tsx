@@ -1,4 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { InvoiceEditForm } from '../../components/invoices/invoice-edit-form';
@@ -9,18 +10,13 @@ import { useInvoice } from '../../features/invoices/use-invoices';
 import { useBusinessProfile } from '../../features/profile/use-profile';
 import { useTemplates } from '../../features/templates/use-templates';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  back: 'Back to invoice',
-  title: 'Edit invoice',
-} as const;
-
 /**
  * Edit a saved invoice (backlog Epic 4.4). Loads the invoice, the business
  * profile and the template list, then hands off to `<InvoiceEditForm>`, which
  * owns Save / Cancel semantics and the edit-screen Download / Send.
  */
 export function InvoiceEditPage() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const invoiceQuery = useInvoice(id);
@@ -34,12 +30,12 @@ export function InvoiceEditPage() {
           variant="ghost"
           size="sm"
           className="-ml-2 self-start"
-          onClick={() => void navigate(id ? `/invoices/${id}` : '/invoices')}
+          onClick={() => void navigate(id ? `/console/invoices/${id}` : '/console/invoices')}
         >
           <ArrowLeft className="size-4" aria-hidden />
-          {COPY.back}
+          {t('invoices.editBack')}
         </Button>
-        <h1 className="text-xl font-semibold text-foreground">{COPY.title}</h1>
+        <h1 className="text-xl font-semibold text-foreground">{t('invoices.editTitle')}</h1>
       </header>
 
       <QueryBoundary
@@ -64,8 +60,8 @@ export function InvoiceEditPage() {
                     invoice={invoice}
                     profile={profile}
                     templates={templates.items}
-                    onSaved={(saved) => void navigate(`/invoices/${saved.id}`)}
-                    onCancel={() => void navigate(`/invoices/${invoice.id}`)}
+                    onSaved={(saved) => void navigate(`/console/invoices/${saved.id}`)}
+                    onCancel={() => void navigate(`/console/invoices/${invoice.id}`)}
                   />
                 )}
               </QueryBoundary>

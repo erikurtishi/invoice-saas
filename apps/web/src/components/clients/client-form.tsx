@@ -7,6 +7,7 @@ import {
 } from '@invoice-saas/shared';
 import { useState } from 'react';
 import { Controller } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 
 import { useCreateClient, useUpdateClient } from '../../features/clients/use-clients';
@@ -18,53 +19,7 @@ import { FormField } from '../form/field';
 import { FormBanner } from '../form/form-banner';
 import { Button, Input, Select, Textarea } from '../ui';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  name: 'Client name',
-  email: 'Email',
-  emailHint: 'Used when you send an invoice. Leave blank to keep Send disabled for this client.',
-  taxId: 'Tax ID / VAT number',
-  currency: 'Invoice currency',
-  currencyDefault: 'Use business default',
-  currencyHint: 'Overrides your business default currency for this client’s invoices.',
-  addressMode: 'Address format',
-  addressModeStructured: 'Structured',
-  addressModeFreeText: 'Free text',
-  addressLine1: 'Address line 1',
-  addressLine2: 'Address line 2',
-  city: 'City',
-  postalCode: 'Postal code',
-  country: 'Country',
-  addressText: 'Address',
-  addressTextHint: 'Printed on the invoice exactly as entered.',
-  notes: 'Notes',
-  notesHint: 'Internal only — never shown on an invoice.',
-  createSubmit: 'Add client',
-  editSubmit: 'Save changes',
-  cancel: 'Cancel',
-  createdToast: 'Client added.',
-  savedToast: 'Client saved.',
-  requestFailed: "Couldn't save this client. Try again.",
-  sectionDetails: 'Client details',
-  sectionAddress: 'Address',
-} as const;
-
-const ADDRESS_MODE_LABELS: Record<(typeof CLIENT_ADDRESS_MODES)[number], string> = {
-  STRUCTURED: COPY.addressModeStructured,
-  FREE_TEXT: COPY.addressModeFreeText,
-};
-
 const CURRENCY_DEFAULT = '' as const;
-
-const ADDRESS_MODE_OPTIONS = CLIENT_ADDRESS_MODES.map((mode) => ({
-  value: mode,
-  label: ADDRESS_MODE_LABELS[mode],
-}));
-
-const CURRENCY_OPTIONS = [
-  { value: CURRENCY_DEFAULT, label: COPY.currencyDefault },
-  ...CLIENT_CURRENCIES.map((code) => ({ value: code, label: code })),
-];
 
 /**
  * Resolver schema: the shared `clientInputSchema` with `currency` widened to also
@@ -107,7 +62,19 @@ export interface ClientFormProps {
 }
 
 export function ClientForm({ client, layout = 'page', onSaved, onCancel }: ClientFormProps) {
+  const { t } = useTranslation();
   const isEdit = client !== undefined;
+
+  const addressModeOptions = CLIENT_ADDRESS_MODES.map((mode) => ({
+    value: mode,
+    label:
+      mode === 'STRUCTURED' ? t('clients.addressModeStructured') : t('clients.addressModeFreeText'),
+  }));
+  const currencyOptions = [
+    { value: CURRENCY_DEFAULT, label: t('clients.currencyDefault') },
+    ...CLIENT_CURRENCIES.map((code) => ({ value: code, label: code })),
+  ];
+
   const createMutation = useCreateClient();
   const updateMutation = useUpdateClient();
   const isPending = createMutation.isPending || updateMutation.isPending;
@@ -130,11 +97,11 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
         ? await updateMutation.mutateAsync({ id: client.id, input: payload })
         : await createMutation.mutateAsync(payload);
       form.reset(toFormValues(isEdit ? saved : undefined));
-      toast.success(isEdit ? COPY.savedToast : COPY.createdToast);
+      toast.success(isEdit ? t('clients.savedToast') : t('clients.createdToast'));
       onSaved?.(saved);
     } catch (err) {
       if (!applyFieldErrors<ClientFormValues>(err, form.setError)) {
-        setFormError(toUserMessage(err) || COPY.requestFailed);
+        setFormError(toUserMessage(err) || t('clients.requestFailed'));
       }
     }
   });
@@ -151,10 +118,10 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
 
       <fieldset className="flex flex-col gap-4" disabled={isPending}>
         <legend className="mb-1 text-sm font-semibold text-foreground">
-          {COPY.sectionDetails}
+          {t('clients.sectionDetails')}
         </legend>
 
-        <FormField label={COPY.name} required error={errors.name?.message}>
+        <FormField label={t('clients.fieldName')} required error={errors.name?.message}>
           {({ controlProps, invalid }) => (
             <Input
               {...controlProps}
@@ -166,7 +133,11 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
         </FormField>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label={COPY.email} hint={COPY.emailHint} error={errors.email?.message}>
+          <FormField
+            label={t('clients.fieldEmail')}
+            hint={t('clients.fieldEmailHint')}
+            error={errors.email?.message}
+          >
             {({ controlProps, invalid }) => (
               <Input
                 {...controlProps}
@@ -177,14 +148,18 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
               />
             )}
           </FormField>
-          <FormField label={COPY.taxId} error={errors.taxId?.message}>
+          <FormField label={t('clients.fieldTaxId')} error={errors.taxId?.message}>
             {({ controlProps, invalid }) => (
               <Input {...controlProps} {...form.register('taxId')} invalid={invalid} />
             )}
           </FormField>
         </div>
 
-        <FormField label={COPY.currency} hint={COPY.currencyHint} error={errors.currency?.message}>
+        <FormField
+          label={t('clients.fieldCurrency')}
+          hint={t('clients.fieldCurrencyHint')}
+          error={errors.currency?.message}
+        >
           {({ controlProps, invalid }) => (
             <Controller
               control={form.control}
@@ -192,8 +167,8 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
               render={({ field }) => (
                 <Select
                   id={controlProps.id}
-                  aria-label={COPY.currency}
-                  options={CURRENCY_OPTIONS}
+                  aria-label={t('clients.fieldCurrency')}
+                  options={currencyOptions}
                   value={field.value ?? CURRENCY_DEFAULT}
                   onValueChange={field.onChange}
                   invalid={invalid}
@@ -206,10 +181,14 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
 
       <fieldset className="flex flex-col gap-4" disabled={isPending}>
         <legend className="mb-1 text-sm font-semibold text-foreground">
-          {COPY.sectionAddress}
+          {t('clients.sectionAddress')}
         </legend>
 
-        <FormField label={COPY.addressMode} required error={errors.addressMode?.message}>
+        <FormField
+          label={t('clients.fieldAddressMode')}
+          required
+          error={errors.addressMode?.message}
+        >
           {({ controlProps, invalid }) => (
             <Controller
               control={form.control}
@@ -217,8 +196,8 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
               render={({ field }) => (
                 <Select
                   id={controlProps.id}
-                  aria-label={COPY.addressMode}
-                  options={ADDRESS_MODE_OPTIONS}
+                  aria-label={t('clients.fieldAddressMode')}
+                  options={addressModeOptions}
                   value={field.value}
                   onValueChange={field.onChange}
                   invalid={invalid}
@@ -230,7 +209,7 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
 
         {addressMode === 'STRUCTURED' ? (
           <>
-            <FormField label={COPY.addressLine1} error={errors.addressLine1?.message}>
+            <FormField label={t('clients.fieldAddressLine1')} error={errors.addressLine1?.message}>
               {({ controlProps, invalid }) => (
                 <Input
                   {...controlProps}
@@ -240,7 +219,7 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
                 />
               )}
             </FormField>
-            <FormField label={COPY.addressLine2} error={errors.addressLine2?.message}>
+            <FormField label={t('clients.fieldAddressLine2')} error={errors.addressLine2?.message}>
               {({ controlProps, invalid }) => (
                 <Input
                   {...controlProps}
@@ -251,7 +230,7 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
               )}
             </FormField>
             <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label={COPY.city} error={errors.city?.message}>
+              <FormField label={t('clients.fieldCity')} error={errors.city?.message}>
                 {({ controlProps, invalid }) => (
                   <Input
                     {...controlProps}
@@ -261,7 +240,7 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
                   />
                 )}
               </FormField>
-              <FormField label={COPY.postalCode} error={errors.postalCode?.message}>
+              <FormField label={t('clients.fieldPostalCode')} error={errors.postalCode?.message}>
                 {({ controlProps, invalid }) => (
                   <Input
                     {...controlProps}
@@ -272,7 +251,7 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
                 )}
               </FormField>
             </div>
-            <FormField label={COPY.country} error={errors.country?.message}>
+            <FormField label={t('clients.fieldCountry')} error={errors.country?.message}>
               {({ controlProps, invalid }) => (
                 <Input
                   {...controlProps}
@@ -285,8 +264,8 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
           </>
         ) : (
           <FormField
-            label={COPY.addressText}
-            hint={COPY.addressTextHint}
+            label={t('clients.fieldAddressText')}
+            hint={t('clients.fieldAddressTextHint')}
             error={errors.addressText?.message}
           >
             {({ controlProps, invalid }) => (
@@ -302,7 +281,11 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
       </fieldset>
 
       <fieldset className="flex flex-col gap-4" disabled={isPending}>
-        <FormField label={COPY.notes} hint={COPY.notesHint} error={errors.notes?.message}>
+        <FormField
+          label={t('clients.fieldNotes')}
+          hint={t('clients.fieldNotesHint')}
+          error={errors.notes?.message}
+        >
           {({ controlProps, invalid }) => (
             <Textarea {...controlProps} {...form.register('notes')} rows={3} invalid={invalid} />
           )}
@@ -312,11 +295,11 @@ export function ClientForm({ client, layout = 'page', onSaved, onCancel }: Clien
       <div className="flex justify-end gap-3">
         {layout === 'dialog' && onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isPending}>
-            {COPY.cancel}
+            {t('common.cancel')}
           </Button>
         )}
         <Button type="submit" isLoading={isPending} disabled={isEdit && !isDirty}>
-          {isEdit ? COPY.editSubmit : COPY.createSubmit}
+          {isEdit ? t('clients.formEditSubmit') : t('clients.formCreateSubmit')}
         </Button>
       </div>
     </form>

@@ -11,6 +11,7 @@ import {
   type TemplateResponse,
 } from '@invoice-saas/shared';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { invoiceKeys, useUpdateInvoiceDraft } from '../../features/invoices/use-invoices';
 import { useBeforeUnload } from '../../hooks/use-before-unload';
@@ -30,21 +31,6 @@ import {
   toInvoiceInputPayload,
 } from './invoice-form-state';
 import { type LineRow, rowsToLineItems } from './line-items';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  unsaved: 'Unsaved changes',
-  save: 'Save',
-  cancel: 'Cancel',
-  savedToast: 'Invoice saved.',
-  saveFailed: "Couldn't save this invoice. Try again.",
-  fixErrors: 'Check the highlighted fields before saving.',
-  clientRequired: 'Pick a client for this invoice.',
-  discardTitle: 'Discard changes?',
-  discardBody: 'Your edits will be lost. The saved invoice stays as it is.',
-  discardConfirm: 'Discard',
-  actionsHint: 'Download and Send use your current edits — Save is separate.',
-} as const;
 
 export interface InvoiceEditFormProps {
   invoice: InvoiceResponse;
@@ -68,6 +54,7 @@ export function InvoiceEditForm({
   onSaved,
   onCancel,
 }: InvoiceEditFormProps) {
+  const { t } = useTranslation();
   const toast = useToast();
   const qc = useQueryClient();
   const save = useUpdateInvoiceDraft();
@@ -105,7 +92,7 @@ export function InvoiceEditForm({
   useBeforeUnload(dirty);
 
   const totals = useMemo<InvoiceTotalsResponse>(() => {
-    const { totals: t } = computeInvoiceTotals(
+    const { totals: computed } = computeInvoiceTotals(
       lineItems.map((li) => ({
         description: li.description,
         quantityMilli: li.quantityMilli,
@@ -117,12 +104,12 @@ export function InvoiceEditForm({
       { documentType: invoice.documentType },
     );
     return {
-      subtotalMinor: t.subtotalMinor,
-      discountTotalMinor: t.discountTotalMinor,
-      taxTotalMinor: t.taxTotalMinor,
-      grandTotalMinor: t.grandTotalMinor,
-      amountDueMinor: t.amountDueMinor,
-      taxLines: t.taxLines,
+      subtotalMinor: computed.subtotalMinor,
+      discountTotalMinor: computed.discountTotalMinor,
+      taxTotalMinor: computed.taxTotalMinor,
+      grandTotalMinor: computed.grandTotalMinor,
+      amountDueMinor: computed.amountDueMinor,
+      taxLines: computed.taxLines,
     };
   }, [lineItems, invoice.documentType]);
 
@@ -144,7 +131,7 @@ export function InvoiceEditForm({
   const handleSave = async () => {
     setFormError(null);
     const errors: Record<string, string> = {};
-    if (!payload.clientId) errors.clientId = COPY.clientRequired;
+    if (!payload.clientId) errors.clientId = t('invoices.clientRequired');
 
     const parsed = invoiceInputSchema.safeParse(payload);
     if (!parsed.success) {
@@ -152,19 +139,20 @@ export function InvoiceEditForm({
         const path = issue.path.join('.');
         if (path && !path.startsWith('lineItems')) errors[path] = issue.message;
       }
-      if (parsed.error.issues.some((i) => i.path[0] === 'lineItems')) setFormError(COPY.fixErrors);
+      if (parsed.error.issues.some((i) => i.path[0] === 'lineItems'))
+        setFormError(t('invoices.fixErrors'));
     }
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
-      if (!formError) setFormError(COPY.fixErrors);
+      if (!formError) setFormError(t('invoices.fixErrors'));
       return;
     }
 
     try {
       const saved = await save.mutateAsync({ id: invoice.id, input: payload });
       void qc.invalidateQueries({ queryKey: invoiceKeys.lists() });
-      toast.success(COPY.savedToast);
+      toast.success(t('invoices.savedToast'));
       onSaved(saved);
     } catch (err) {
       if (err instanceof HttpError && err.fields) {
@@ -173,9 +161,9 @@ export function InvoiceEditForm({
           if (msgs[0]) mapped[k] = msgs[0];
         }
         setFieldErrors(mapped);
-        setFormError(COPY.fixErrors);
+        setFormError(t('invoices.fixErrors'));
       } else {
-        setFormError(toUserMessage(err) || COPY.saveFailed);
+        setFormError(toUserMessage(err) || t('invoices.saveFailed'));
       }
     }
   };
@@ -187,11 +175,13 @@ export function InvoiceEditForm({
           <span className="font-medium text-foreground">
             {invoice.number ?? invoice.documentType}
           </span>
-          {dirty && <span className="ml-2 text-xs text-muted-foreground">{COPY.unsaved}</span>}
+          {dirty && (
+            <span className="ml-2 text-xs text-muted-foreground">{t('invoices.unsaved')}</span>
+          )}
         </p>
         <div className="flex gap-2">
           <Button type="button" variant="outline" onClick={handleCancel}>
-            {COPY.cancel}
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -199,7 +189,7 @@ export function InvoiceEditForm({
             isLoading={save.isPending}
             disabled={!dirty}
           >
-            {COPY.save}
+            {t('common.save')}
           </Button>
         </div>
       </div>
@@ -230,16 +220,16 @@ export function InvoiceEditForm({
       />
 
       <div className="rounded-lg border border-border p-4">
-        <p className="mb-3 text-xs text-muted-foreground">{COPY.actionsHint}</p>
+        <p className="mb-3 text-xs text-muted-foreground">{t('invoices.actionsHint')}</p>
         <InvoiceActions invoice={invoice} draft={payload} />
       </div>
 
       <ConfirmDialog
         open={confirmCancel}
         onOpenChange={setConfirmCancel}
-        title={COPY.discardTitle}
-        description={COPY.discardBody}
-        confirmLabel={COPY.discardConfirm}
+        title={t('invoices.editDiscardTitle')}
+        description={t('invoices.editDiscardBody')}
+        confirmLabel={t('invoices.discardConfirm')}
         destructive
         onConfirm={onCancel}
       />

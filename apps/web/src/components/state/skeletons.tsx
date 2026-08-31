@@ -90,6 +90,37 @@ export function SkeletonForm({ fields = 5, className }: { fields?: number; class
 }
 
 /**
+ * Matches the template editor's own layout while an existing template loads
+ * (X.7.2): a disabled-looking controls rail on the left and a page-shaped preview
+ * block on the right, so the split doesn't collapse to a form skeleton then jump
+ * to the two-pane editor. Falls back to a stacked shape below `lg`, mirroring the
+ * editor's real breakpoint.
+ */
+export function SkeletonTemplateEditor({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn(
+        'flex h-full min-h-[480px] flex-col overflow-hidden rounded-lg border border-border lg:grid lg:grid-cols-[minmax(320px,380px)_1fr]',
+        className,
+      )}
+      aria-hidden
+    >
+      <div className="flex flex-col gap-5 border-b border-border p-4 lg:border-b-0 lg:border-r">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex flex-col gap-2">
+            <Skeleton className="h-3.5 w-28" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        ))}
+      </div>
+      <div className="flex min-h-0 flex-1 items-start justify-center bg-muted/30 p-6">
+        <SkeletonInvoicePreview className="max-w-[520px]" />
+      </div>
+    </div>
+  );
+}
+
+/**
  * Matches the invoice preview / template editor preview area: a page-shaped block
  * at true paper proportions so the preview pane never collapses then jumps (X.7.2).
  * `ratio` defaults to A4 portrait (1 / √2).

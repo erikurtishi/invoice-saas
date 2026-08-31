@@ -162,6 +162,10 @@ error screen trades a large scope expansion for a tiny saving.
 - The `no-literal-string` lint rule from `X.1.1` is what stops this convention from
   quietly spreading past its intended scope.
 
+**Resolved (Epic X.1.1, see D26).** The grep returns nothing; all 55 `COPY` objects
+are converted; `i18next/no-literal-string` is live on `apps/web/src` and
+`npm run i18n:check` is the ongoing gate.
+
 ## D10 — Never `system-ui` in invoice rendering
 
 **Decided:** The invoice renderer and PDF pipeline must use an explicit, self-hosted
@@ -756,6 +760,359 @@ plus all the surrounding logic; the concrete LLM provider (`7.1.1`) is deferred.
 
 ---
 
+## D26 — App i18n (Epic X.1): react-i18next, `en` as source of truth, UI vs invoice language split
+
+**Decided:**
+
+- **Stack.** `i18next` + `react-i18next` + `i18next-browser-languagedetector`, one
+  `translation` namespace, three bundled locales in
+  `apps/web/src/i18n/resources/{en,sq,mk}.ts`. `en` is the source of truth;
+  `sq`/`mk` are typed `: typeof en` so TypeScript rejects a missing/extra key.
+  `types.ts` binds `t()` keys to `typeof en`. Detector order:
+  `localStorage` (`ui-language`) → `navigator`; `useSyncAuthLanguage` overrides
+  with the server value once a session loads. SQ/MK strings are model-authored and
+  carry a `TODO(i18n): needs native review` header — same posture as
+  `render/labels.ts`.
+- **UI vs invoice language (X.1.4).** `users.preferredLanguage` is **renamed** to
+  `invoiceLanguage` and a new `uiLanguage Language @default(EN)` column is added
+  (migration `20260831060000_split_ui_invoice_language`; `UPDATE … SET uiLanguage
+  = invoiceLanguage` backfills existing tenants to one consistent language).
+  `invoiceLanguage` seeds the invoice form's per-document `language`, feeds the AI
+  drafter, and is echoed by `/profile`, `/auth/*` and `/admin/tenants/:id`.
+  `uiLanguage` drives react-i18next and the auth emails
+  (`apps/api/src/mail/index.ts` — an email is app chrome, not a document).
+- **Formatting (X.1.5).** App-chrome `Intl` formatting goes through
+  `i18n/format.ts` `useFormatters()`, bound to the active UI language. The invoice
+  *document* keeps `packages/shared/src/render/format.ts`, keyed on the invoice's
+  own language — untouched.
+- **Lint enforcement.** `i18next/no-literal-string` in `jsx-text-only` mode on
+  `apps/web/src` (excluding `i18n/resources/**` and `routes/dev/**`). The broader
+  modes false-positive on Radix `value=`, route `path=`, motion variant names, so
+  attribute / toast / Zod-message copy was converted by hand and is covered by
+  review, not the rule.
+- **Gate.** `npm run i18n:check` (`apps/web/scripts/i18n-check.ts`, run via `tsx`)
+  checks key parity + `{{token}}` parity across the three locales and that the D9
+  marker grep over `apps/` is clean. D9 is resolved.
+
+**Not done here:** Zod validation messages in `packages/shared` stay English —
+that's Epic X.7.12, a separate cross-cutting change; the lint rule stays scoped to
+`apps/web/src`.
+
+---
+
+## D27 — Responsiveness (Epic X.2): per-surface layouts at Tailwind breakpoints, no automated gate
+
+**Decided:**
+
+- **Breakpoints.** Tailwind defaults, unchanged. `lg` (1024px) is the app's
+  primary desktop/laptop line — the app shell, invoice form, invoice detail and
+  template editor all switch their side-by-side layouts to stacked/tabbed below
+  it. `md` (768px) is where data tables become cards. `2xl`-ish wide screens are
+  handled once, in the shell (`max-w-[1600px]` on `<main>`), not per route.
+- **Tables → cards (X.2.4).** A shared presentational `<RecordCard>`
+  (`apps/web/src/components/ui/record-card.tsx`) — title node + `{label,value}[]`
+  `<dl>` + actions slot. Each list route keeps its `<Table>` behind `hidden
+  md:block` and adds a `md:hidden` `<ul>` of `<RecordCard>`, both mapped from the
+  same `data.items`. The base `<Table>` primitive stays dumb (its job is just to
+  never overflow — horizontal scroll); the card conversion lives at the screen
+  level because column-to-field mapping is per-surface. Existing column `t()`
+  keys double as card field labels, so X.2 added **zero** i18n keys.
+- **Line items (X.2.3).** `line-items-editor.tsx` runs two layouts off one
+  `NUMERIC_FIELDS` descriptor array (key + `t()` label + inputMode + placeholder)
+  so the dense `md:` grid and the sub-`md` card stack can't fall out of sync.
+- **Touch targets (X.2.6).** New/reworked controls get ≥40px hit areas; the
+  app-wide icon button stays 36px (`Button size="icon"`, established by the mobile
+  nav) rather than a churny global bump. No hover-only affordances — row actions
+  are click `<DropdownMenu>`s; the lone disabled-button tooltip has a
+  `tabIndex={0}` focus fallback.
+- **No check script.** Unlike `i18n:check` / `render:check`, responsiveness has no
+  meaningful headless assertion. X.2.1 is an emulated-viewport audit at 375 / 768
+  / 1024 / 1600; X.2.7 (physical devices) is deferred to a pre-launch manual pass.
+
+**Deliberate exception:** the pricing page's `PlanComparison` keeps a
+`min-w-[34rem]` horizontal scroll on phones — a multi-plan comparison table is
+conventional UX and not a data list.
+
+---
+
+## D28 — Animation (Epic X.3): one Motion preset file, GSAP reserved for the landing page
+
+**Decided:**
+
+- **Motion everywhere in-app; GSAP only for the marketing landing.** `motion`
+  (v13, `motion/react`) is the sole animation library inside the authed app —
+  modals, toasts, page transitions, list stagger, the template editor's drag
+  reorder and switch feedback. `gsap` stays a dependency but has **zero call
+  sites** until Epic X.6 builds the landing page's scroll sequence
+  (`ScrollTrigger`); that is the only place a hand-built timeline is justified.
+- **All configs live in `lib/motion-presets.ts`.** Components import
+  `modal*`/`page*`/`list*`/`toast*`/`switchThumbSpring` rather than writing
+  `transition`/`variants` inline, so timing reads as one system. X.3 added one
+  preset (`switchThumbSpring`) and one component wrapper (`<RecordCardList>` in
+  `ui/record-card.tsx`, carrying the stagger container variants).
+- **List stagger applies to feed- and card-shaped surfaces, not dense data
+  tables.** The dashboard activity feed, the templates grid, the invoice history
+  timeline and the sub-`md` `<RecordCard>` lists stagger their items in on mount.
+  The desktop `<Table>` on Clients / Products / Invoices does **not** — per-row
+  stagger on a table that refilters on every keystroke reads as jank, not polish
+  (X.3.5), and a wide table is taken in at a glance anyway. Stagger is mount-only
+  (`initial`/`animate`, no `AnimatePresence` exit); stable React keys mean a
+  refetch reconciles in place without re-running it.
+- **`prefers-reduced-motion` stays the 0.4.5 three-layer setup**, unchanged:
+  `MotionConfig reducedMotion="user"` (every `motion.*`), `getTransition()` (the
+  presets' own durations), the `index.css` media block (non-Motion CSS). A spring
+  needs no `getTransition` — `MotionConfig` collapses it to an instant snap.
+- **Performance:** transform/opacity only, no `width`/`height`/`top` animation,
+  `<Reorder>` uses Motion's FLIP. No automated jank gate — a physical-device
+  profiling pass rides along with X.2.7's manual round.
+
+---
+
+## D29 — Privacy, legal & security (Epic X.4)
+
+**Decided:**
+
+- **Legal pages (X.4.1 / X.4.2) — placeholder structure, English body, own module.**
+  `/privacy` and `/terms` are public routes rendered by `<LegalPage>` from
+  `apps/web/src/routes/legal/legal-content.ts`. Content is **English-only** and
+  deliberately outside react-i18next (same call as `render/labels.ts`): an
+  unreviewed machine translation of a privacy policy can misstate a reader's
+  rights, so SQ/MK show the EN text with a "translation being prepared" notice;
+  the page chrome is translated. The body is real section structure (what's
+  collected, legal basis, retention, sharing, transfers, your rights, cookies,
+  changes, contact) with bracketed placeholders — `[COMPANY]`, `[JURISDICTION]`,
+  `[CONTACT EMAIL]`, `[EFFECTIVE DATE]`, `[COMPANY ADDRESS]` — plus a visible
+  "working draft pending legal review" banner. The placeholders and a legal review
+  are resolved at brand sign-off; the structure is the deliverable now.
+- **Footer.** New `<AppFooter>` (privacy / terms links + copyright) at the bottom
+  of the app shell, the auth pages and the legal pages — reachable before signup.
+- **Cookie consent (X.4.3) — two categories, opt-in analytics, no vendor yet.**
+  `useConsent()` (`features/consent/`) persists `all | essential` in
+  `localStorage['cookie-consent']` via a `useSyncExternalStore` mini-store;
+  `<CookieConsentBanner>` (mounted in `App`, shows until decided). Strictly
+  necessary storage (session cookie, `ui-language`, the consent value itself) is
+  always on. `lib/analytics.ts` `initAnalytics()` is the **single seam** for a
+  future analytics vendor and is gated on `analyticsAllowed()` (`=== 'all'`); it's
+  a no-op today. `App` re-runs it when the consent choice changes, so opting in
+  needs no reload.
+- **Account deletion (X.4.4) — immediate, re-auth gated.** `DELETE /profile`
+  (`account-service.ts` `deleteOwnAccount`): validate `deleteAccountSchema`
+  (password + `confirmEmail`), `assertReauth` (verify password, case-insensitive
+  email match), **cancel every live Stripe subscription first** — a failure there
+  aborts with a 502 and the account survives, rather than orphan a paying sub —
+  then delete the logo asset and one cascade `prisma.user.delete` (every child
+  table is `onDelete: Cascade`; support tickets `SetNull`; `AdminAuditLog`
+  unlinked and retained). Mirrors the admin `deleteTenant` path;
+  `lib/billing/index.ts` gained `cancelAllSubscriptions`. Web: Settings → danger
+  zone modal → `/login?deleted=1`.
+- **Data export (X.4.5) — synchronous JSON.** `GET /profile/export`
+  (`exportOwnData`) streams one `Content-Disposition: attachment` JSON blob:
+  account (no `passwordHash`), clients, products, templates, invoices (+ line
+  items + history), numbering, subscriptions, usage counter, AI logs —
+  soft-deleted rows included (still their data). A tenant's dataset is bounded, so
+  no job/pagination. Web: Settings → "Export my data".
+- **Security pass (X.4.6).**
+  - **Headers:** `helmet()` in `index.ts` with `contentSecurityPolicy`,
+    `crossOriginResourcePolicy` and `crossOriginEmbedderPolicy` disabled — the API
+    serves JSON + assets, not HTML, and the `/fonts` route must keep its own
+    `cross-origin` CORP for the sandboxed preview iframe and the PDF pipeline.
+    `app.set('trust proxy', 1)` for correct `req.ip` behind the VPS proxy. HSTS
+    only in production.
+  - **Rate limiting:** broadened from auth-only. `apiLimiter` (300/min/IP) on
+    every route except `/health` and `/billing/webhook`; `expensiveLimiter`
+    (20/5min/IP) on `/profile/export` and `DELETE /profile` (and available for AI
+    / PDF).
+  - **Input sanitization:** the render engine already escapes every value through
+    `render/html.ts` `esc` / `escMultiline` (36 call sites in `blocks.ts`, no raw
+    interpolation) — verified, unchanged. Zod validates every request body.
+  - **File upload:** already hardened (`logo-upload.ts` MIME allow-list + size +
+    `files:1`; `profile-service.setLogo` re-encodes through sharp, capping
+    dimensions and stripping metadata; SVG excluded). Verified, unchanged.
+  - **Cross-tenant isolation:** new `npm run security:check`
+    (`scripts/security-check.ts`) — two throwaway tenants, drives the real
+    `scopedPrisma` client and asserts tenant B cannot read/update/delete tenant
+    A's rows and has `tenantId` forced to its own on create, while the unscoped
+    client can see A's data (proving the scope is the guard). Passes.
+- **Backups & secrets (X.4.7) — runbook, ops-deferred.** No server exists yet
+  (D1). `docs/backup-and-secrets-runbook.md` specifies encrypted nightly
+  `pg_dump` (age, off-box, versioned bucket), asset tarball, restore-test
+  cadence, the secret inventory (keyed to `env.ts`), `.env` handling (`0600`,
+  never committed, password-manager as source of truth), least-privilege DB role,
+  and `JWT_ACCESS_SECRET` rotation. Executed as part of `0.3.1` when the VPS is
+  stood up.
+
+**Not done here:** real legal copy and the brand/entity placeholders (legal
+sign-off); an analytics vendor and its `initAnalytics()` body; wiring the backup
+cron (needs the VPS). SQ/MK legal translations wait on a native + legal review,
+same posture as the X.1.2 UI bundles.
+
+---
+
+## D30 — Testing & monitoring (Epic X.5)
+
+**Decided:**
+
+- **Vitest for unit + fast integration tests.** Added at the repo root
+  (`vitest.config.ts`, projects `shared` + `api`). `npm test` = `vitest run`.
+  Pure-logic tests are `*.test.ts` next to the source; DB-backed ones are
+  `*.integration.test.ts` and hit the local Postgres in `apps/api/.env` (D2) —
+  `apps/api/vitest.setup.ts` loads that env before `config/env.ts` validates it.
+  The existing `apps/api/scripts/*-check.ts` scripts stay as-is (broader live-DB
+  smoke checks); `npm run check:db` runs them in sequence. Not Node's built-in
+  runner — Vitest resolves the workspace's `.js`-specifier TS imports and the
+  `@invoice-saas/shared` alias (to source, not `dist`) with no extra config, and
+  gives coverage.
+- **What's tested (X.5.1 / X.5.2 / X.5.4).** money round-trips + rejection;
+  `computeInvoiceTotals` rounding policy pinned to D20 (line-level half-up, order
+  subtotal→discount→tax); `formatInvoiceNumber` rendering; the atomic number
+  *allocation* proven gapless + per-`(type,year)` + gap-free on transaction
+  rollback; the entitlement capability grid (FREE/BASIC/PREMIUM can/can't); PDF
+  rendered for every `paperSize × language` and asserted on physical page
+  dimensions + surviving localized text (structural snapshot, not pixel).
+- **Playwright for E2E + a11y (X.5.3 / X.5.6).** `apps/web/playwright.config.ts`;
+  `webServer` boots the API (`npm run dev:api`, real local Postgres) and the Vite
+  dev server. One happy-path flow (signup → profile → client → invoice → download
+  → send). A "setup project" (`e2e/auth.setup.ts`) signs up + onboards once and
+  saves the session for the authed a11y scans. `global-teardown` deletes the
+  `e2e-*@example.test` tenants. `PW_REUSE=1` skips the boot.
+- **a11y gate scans the light theme**, failing on serious/critical axe violations
+  only. The first run surfaced two real bugs, both fixed here:
+  1. **The app rendered dark for everyone.** `index.css` wrapped a second `@theme`
+     block in `@media (prefers-color-scheme: dark)`; Tailwind v4 hoists every
+     `@theme` block's variables to `:root` unconditionally, so the media query did
+     nothing. Fixed by making the dark palette a plain `:root` override inside the
+     media query.
+  2. **`--color-primary` (blue-600) failed WCAG AA** as `text-primary` on the
+     `bg-primary/10` active-nav tint (4.48:1). Moved to blue-700 (`#1d4ed8`),
+     which clears every use (button fill, links, tinted nav); blue-600 stays as
+     the focus `ring`. A dark-mode contrast sweep is a tracked follow-up
+     (`docs/testing.md`).
+- **Monitoring (X.5.5) — Sentry SDK env-gated, uptime is ops.** `@sentry/node` /
+  `@sentry/react` (MIT; Sentry Developer plan is free). `lib/observability.ts` in
+  each app: no-op without a DSN, same shape as the Stripe/Mailer/Storage ports.
+  API reports genuine 5xx from the central error handler; web dynamically imports
+  the SDK only when `VITE_SENTRY_DSN` is set (no bundle cost otherwise) and the
+  root error boundary forwards to it. No PII, errors only. Uptime monitoring is a
+  free external probe of `/health` (exempt from rate limiting), wired when the VPS
+  exists — documented in `docs/testing.md`.
+
+**Not done here:** CI wiring (0.3.4 — needs Postgres + Chrome in CI); the
+dark-mode a11y contrast pass; a real Sentry DSN / uptime monitor (need the
+deploy).
+
+---
+
+## D31 — UI states per surface (Epic X.7)
+
+**Context:** the five-state primitives (Epic 0.4b) plus the discipline of routing
+every list/detail screen through `<QueryBoundary>` and every mutation through the
+toast system meant most of X.7 was already satisfied as each feature shipped
+(Phases 4–8, Epics X.1–X.5) — X.7.3/4, 10, 11, 14, 15, 17, 18, 21, 25 in
+particular carry explicit `X.7.*` markers written at build time. This decision
+records the gap-closing pass and the deliberate non-actions.
+
+**Decided:**
+
+- **404 / 403 (X.7.19) — one `RouteStatusPage`.** `components/state/route-status-page.tsx`,
+  `status: 404 | 403`. i18n'd (`routeStatus.*`, en/sq/mk). Rendered *inside* the
+  shell (the `*` route) so nav stays usable; offers "Go back" when
+  `window.history.length > 1` and always "Go to dashboard". Distinct from
+  `<ErrorState>` — a router/API *answer*, not a retryable failure, so recovery is
+  navigation. The 403 variant has no in-app caller yet: the one permission gate
+  (FREE tier reaching the template editor) deliberately redirects to the list with
+  an upsell instead — a friendlier gate (X.7.17), not a wall.
+- **Zero line items (X.7.7) — placeholder row in the shared renderer.**
+  `render/blocks.ts` renders one muted centred row (`labels.lineItemsEmpty`,
+  trilingual) spanning the table when `lineItems` is empty, rather than a bare
+  `<tbody>`. Done in the shared render fn (D18), not the React preview, so preview
+  and PDF can't diverge; a saved/issued invoice always has ≥ 1 line so the PDF
+  path never reaches it.
+- **Template editor loading (X.7.2) — `SkeletonTemplateEditor`.** A controls rail
+  + a paper-proportioned `SkeletonInvoicePreview` at the editor's real `lg` split,
+  replacing the `SkeletonForm` that made the screen collapse then jump to a
+  two-pane layout. Controls mount only after the config resolves.
+- **Dev state-forcing (X.7.27) — `?force=` URL param, not network throttling.**
+  `components/state/force-state.ts` overrides a `<QueryBoundary>`'s result with
+  `loading | error | empty | refetching`, globally or scoped `?force=empty:invoices`
+  by a new optional `name` prop. Guarded by `import.meta.env.DEV` so it (and its
+  `HttpError` import) drop from production. Documented on `/dev/states`. Chosen
+  over a network-throttle helper because it also exercises the *empty* and
+  *refetching* branches, which throttling can't, and needs no fixture wiring.
+- **Per-screen audit (X.7.26) — `docs/ui-state-audit.md`.** Every screen × five
+  states, a verified column, and explicit ➖ reasons. It's the checklist that
+  gates a milestone ship.
+
+**Deliberate non-actions:**
+
+- **No in-app past-due / subscription-lapsed banner (X.7.16).** D23 put the
+  past-due window on Stripe dunning; the web entitlements schema doesn't expose
+  `PAST_DUE` and access simply continues, then drops to FREE on final
+  cancellation. Adding a banner would mean a schema + resolver change against a
+  settled decision. Checkout failure, cancellation and card-decline (returns as a
+  cancel) are all handled.
+- **X.7.24 partial CSV export → N/A.** `exportInvoicesCsv` serialises plain
+  denormalised columns; there's no per-row operation that can partially fail.
+  Flagged to revisit if an export ever gains per-row rendering.
+- **Admin surfaces (X.7.1 tenant-list skeleton, X.7.8 no-data charts, X.7.9
+  manual-grant success, X.7.20 admin overview) — deferred.** Phase 8 shipped
+  backend only; these get rows in the audit when the admin UI exists.
+
+**Verification:** `npm run typecheck`, `npm run lint`, `npm run i18n:check`
+(615 keys), `npm test` (53), `npm run render:check` (18 combos) all green.
+
+---
+
+## D32 — Route restructure + marketing surface (Epic X.6)
+
+**Context:** `/` was the authed dashboard; there was no public page. The user
+asked for the split that had been deferred: **`/` public marketing · `/console/*`
+signed-in app · `/admin/*` admin center.** Done here rather than as a separate
+task because X.6 needs a home for the landing page anyway.
+
+**Decided:**
+
+- **Three areas, one `RequireAuth`.** `App.tsx`: `/` → `LandingPage` (public);
+  a single `<Route element={<RequireAuth />}>` wraps `/onboarding`, `/console/*`
+  (`ConsoleLayout` = the old `AuthedLayout`, shell + onboarding gate) and
+  `/admin/*` (`AdminLayout` = shell-less, `role === 'ADMIN'` or a 403). Console
+  children use **relative** paths under `/console`. Two `*` catch-alls: one inside
+  `/console` (shelled 404), one top-level (bare 404). `docs/route-map.md` is the
+  reference.
+- **Every internal link repointed.** `nav-items.ts`, `<Link to>` / `navigate()` /
+  `<Navigate>` across ~12 screens, the signup / verify-email / onboarding success
+  redirects, and `RouteStatusPage`'s home button (now session-aware: `/console`
+  vs `/`). `safeNextPath` default moved from `/` to `DEFAULT_AUTHED_PATH`
+  (`/console`) and a bare `/` `next` collapses to it. **API paths untouched** —
+  `apiFetch('/invoices')` etc. still hit the API origin.
+- **`/admin` is real but empty.** Phase 8 shipped backend-only; `AdminHomePage`
+  says so plainly and links back to `/console`. The route + role guard exist so
+  the admin UI (future) has a home and a mistyped `/admin` reads clearly.
+- **Landing page (X.6.1–X.6.4).** `routes/marketing/landing-page.tsx`, **lazy-
+  loaded** so GSAP + the page land in a separate ~47 KB-gz chunk, never the app
+  bundle. Sections: header (name + shared `<LanguageSwitcher>` + Log in / Get
+  started), hero with a live default-preset `<TemplateThumbnail>`, 4-up feature
+  strip, 3-preset showcase (real shared-render thumbnails), `PLAN_CATALOG`-driven
+  3-tier pricing, closing CTA, `<AppFooter>`. All copy via react-i18next
+  (`landing.*`, `admin.*` in en/sq/mk).
+- **GSAP for scroll reveals (X.6.2), `motion` everywhere else.** `gsap` +
+  `ScrollTrigger` registered in the landing module only (upholds the D28 "gsap
+  reserved for the landing" line). A `<Reveal>` wrapper runs one `gsap.from` per
+  section through `gsap.context()`; `disabled` is wired to `useReducedMotion()`
+  so `prefers-reduced-motion` renders everything static with no GSAP at all.
+- **SEO (X.6.3).** `useLandingSeo()` sets `document.title` + `description` /
+  `og:*` / `twitter:*`, re-running on language change and removing the tags it
+  created on unmount. `index.html` got a static `<title>` + description +
+  `theme-color` for first paint / crawlers. **OG image artwork is a separate
+  design deliverable** — the tag points at `/og-image.png`; add the asset before
+  launch.
+
+**Verification:** `npm run typecheck` · `npm run lint` · `npm run i18n:check`
+(661 keys) · `npm test` (53) · `npm run build` (landing splits to its own chunk) ·
+e2e `happy-path` (full signup→onboarding→`/console`→invoice→send) and `a11y`
+(13 screens incl. `/` and every `/console/*`) all green.
+
+---
+
 ## Still open
 
 - **Nothing blocks `0.2.2` now.** Postgres is running locally and verified; the VPS
@@ -774,9 +1131,7 @@ plus all the surrounding logic; the concrete LLM provider (`7.1.1`) is deferred.
   runs with a fake); a real adapter is one new class implementing `AiDrafter` +
   a one-line swap in `lib/ai/index.ts`, plus an `*_API_KEY` / `AI_MODEL` env pair.
   `lib/ai/cost.ts` already carries list prices for the likely models.
-- **Route restructure (deferred, user-raised in Epic 5.2):** move to a public
-  marketing `/`, `/console/*` for the authed app, `/admin/*` for the admin center.
-  Cross-cutting (every authed route, `App.tsx`, nav, guards, redirects, every
-  in-app link) and needs a marketing site that isn't in the backlog. Its own task,
-  likely alongside Epic 8. For now the authed app stays at top-level paths and the
-  activity dashboard sits at `/`.
+- **Route restructure — done (`D32`, Epic X.6).** Public marketing `/`,
+  `/console/*` for the authed app, `/admin/*` for the admin center.
+  `docs/route-map.md`. The `/admin/*` screen set itself is still future work
+  (Phase 8 UI) — only the route + role guard + a placeholder page exist.

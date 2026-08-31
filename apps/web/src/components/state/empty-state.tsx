@@ -1,5 +1,6 @@
 import { Inbox, SearchX, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../lib/cn';
 import { Button } from '../ui/button';
@@ -18,11 +19,6 @@ import { Button } from '../ui/button';
  */
 
 type EmptyStateVariant = 'nothing-yet' | 'nothing-found';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  clearFilters: 'Clear filters',
-} as const;
 
 const DEFAULT_ICON: Record<EmptyStateVariant, LucideIcon> = {
   'nothing-yet': Inbox,
@@ -54,6 +50,7 @@ export function EmptyState({
   onClearFilters,
   className,
 }: EmptyStateProps) {
+  const { t } = useTranslation();
   const Icon = icon ?? DEFAULT_ICON[variant];
 
   return (
@@ -80,7 +77,7 @@ export function EmptyState({
           {action ??
             (onClearFilters && (
               <Button variant="outline" size="sm" onClick={onClearFilters}>
-                {COPY.clearFilters}
+                {t('states.clearFilters')}
               </Button>
             ))}
         </div>

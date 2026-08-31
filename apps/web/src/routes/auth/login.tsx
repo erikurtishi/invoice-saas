@@ -1,4 +1,5 @@
 import { loginSchema, type LoginInput } from '@invoice-saas/shared';
+import { useTranslation } from 'react-i18next';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { AuthCard, AuthFormError } from '../../components/auth/auth-card';
@@ -11,26 +12,15 @@ import { HttpError } from '../../lib/http-error';
 import { toUserMessage } from '../../lib/error-message';
 import { useZodForm } from '../../lib/use-zod-form';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  title: 'Log in',
-  subtitle: 'Welcome back.',
-  email: 'Email',
-  password: 'Password',
-  submit: 'Log in',
-  forgot: 'Forgot your password?',
-  noAccount: 'Need an account?',
-  signUp: 'Sign up',
-  badCredentials: 'Email or password is incorrect.',
-} as const;
-
 export function LoginPage() {
+  const { t } = useTranslation();
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const next = safeNextPath(params.get('next'));
 
   const session = useSession();
   const { mutateAsync, isPending, error } = useLogin();
+  const justDeleted = params.get('deleted') === '1';
 
   const form = useZodForm<LoginInput>(loginSchema);
 
@@ -49,25 +39,35 @@ export function LoginPage() {
 
   const showBanner = error != null && !(error instanceof HttpError && error.status === 422);
   const bannerMessage =
-    error instanceof HttpError && error.status === 401 ? COPY.badCredentials : toUserMessage(error);
+    error instanceof HttpError && error.status === 401
+      ? t('auth.badCredentials')
+      : toUserMessage(error);
 
   return (
     <AuthCard
-      title={COPY.title}
-      subtitle={COPY.subtitle}
+      title={t('auth.loginTitle')}
+      subtitle={t('auth.loginSubtitle')}
       footer={
         <>
-          {COPY.noAccount}{' '}
+          {t('auth.noAccount')}{' '}
           <Link to="/signup" className="font-medium text-primary hover:underline">
-            {COPY.signUp}
+            {t('auth.signUp')}
           </Link>
         </>
       }
     >
       <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-4" noValidate>
+        {justDeleted && (
+          <p
+            role="status"
+            className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
+          >
+            {t('auth.accountDeleted')}
+          </p>
+        )}
         {showBanner && <AuthFormError>{bannerMessage}</AuthFormError>}
 
-        <FormField label={COPY.email} required error={form.formState.errors.email?.message}>
+        <FormField label={t('auth.email')} required error={form.formState.errors.email?.message}>
           {({ controlProps, invalid }) => (
             <Input
               {...controlProps}
@@ -80,7 +80,11 @@ export function LoginPage() {
           )}
         </FormField>
 
-        <FormField label={COPY.password} required error={form.formState.errors.password?.message}>
+        <FormField
+          label={t('auth.password')}
+          required
+          error={form.formState.errors.password?.message}
+        >
           {({ controlProps, invalid }) => (
             <Input
               {...controlProps}
@@ -94,12 +98,12 @@ export function LoginPage() {
 
         <div className="flex justify-end">
           <Link to="/forgot-password" className="text-sm text-primary hover:underline">
-            {COPY.forgot}
+            {t('auth.forgot')}
           </Link>
         </div>
 
         <Button type="submit" isLoading={isPending} className="w-full">
-          {COPY.submit}
+          {t('auth.loginSubmit')}
         </Button>
       </form>
     </AuthCard>

@@ -1,11 +1,10 @@
 import { LogOut } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import { useLogout, useSession } from '../../features/auth/use-auth';
 import { cn } from '../../lib/cn';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = { logOut: 'Log out' } as const;
+import { LanguageSwitcher } from './language-switcher';
 
 /**
  * The signed-in identity + logout control, in the sidebar / mobile drawer footer.
@@ -13,6 +12,7 @@ const COPY = { logOut: 'Log out' } as const;
  * user to /login.
  */
 export function UserMenu({ className }: { className?: string }) {
+  const { t } = useTranslation();
   const { data: user } = useSession();
   const { mutate: logout, isPending } = useLogout();
   const navigate = useNavigate();
@@ -25,6 +25,7 @@ export function UserMenu({ className }: { className?: string }) {
         <p className="truncate text-sm font-medium text-foreground">{user.businessName}</p>
         <p className="truncate text-xs text-muted-foreground">{user.email}</p>
       </div>
+      <LanguageSwitcher className="mb-1 px-1" />
       <button
         type="button"
         disabled={isPending}
@@ -39,7 +40,7 @@ export function UserMenu({ className }: { className?: string }) {
         )}
       >
         <LogOut className="size-4 shrink-0" aria-hidden />
-        {COPY.logOut}
+        {t('nav.logOut')}
       </button>
     </div>
   );

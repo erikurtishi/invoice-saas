@@ -52,7 +52,8 @@ export function toAuthUser(user: User): AuthUser {
     businessName: user.businessName,
     role: user.role,
     emailVerified: user.emailVerifiedAt !== null,
-    preferredLanguage: user.preferredLanguage,
+    uiLanguage: user.uiLanguage,
+    invoiceLanguage: user.invoiceLanguage,
     tier: user.tier,
     onboardingCompleted: user.onboardingCompletedAt !== null,
   };
@@ -235,7 +236,12 @@ async function sendVerification(user: User): Promise<void> {
     'EMAIL_VERIFICATION',
     expiresInMinutes(VERIFICATION_TTL_HOURS * 60),
   );
-  await sendVerificationEmail({ to: user.email, businessName: user.businessName, token });
+  await sendVerificationEmail({
+    to: user.email,
+    businessName: user.businessName,
+    token,
+    language: user.uiLanguage,
+  });
 }
 
 export async function resendVerificationEmail(userId: string): Promise<void> {
@@ -286,7 +292,12 @@ export async function requestPasswordReset(email: string): Promise<void> {
     'PASSWORD_RESET',
     expiresInMinutes(PASSWORD_RESET_TTL_MINUTES),
   );
-  await sendPasswordResetEmail({ to: user.email, businessName: user.businessName, token });
+  await sendPasswordResetEmail({
+    to: user.email,
+    businessName: user.businessName,
+    token,
+    language: user.uiLanguage,
+  });
 }
 
 export async function resetPassword(rawToken: string, newPassword: string): Promise<void> {

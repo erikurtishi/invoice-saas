@@ -92,6 +92,17 @@ const envSchema = z.object({
   STRIPE_PRICE_PREMIUM: optionalEnv(z.string().startsWith('price_')),
   /** Customer Portal configuration id (`bpc_…`), printed by `npm run stripe:setup`. */
   STRIPE_PORTAL_CONFIG_ID: optionalEnv(z.string().startsWith('bpc_')),
+
+  /**
+   * Sentry error monitoring (backlog X.5.5). Optional — with no DSN the SDK is
+   * never initialised and `captureException` is a no-op, same "degrade, don't
+   * crash" shape as the Stripe / Mailer / Storage ports. Set it in production
+   * (and staging) to a project DSN from a free Sentry account.
+   */
+  SENTRY_DSN: optionalEnv(z.string().url()),
+  /** Fraction of transactions to trace, 0–1. Errors are always sent; this only
+   *  gates performance sampling. Default 0 (errors only). */
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
 });
 
 const parsed = envSchema.safeParse(process.env);

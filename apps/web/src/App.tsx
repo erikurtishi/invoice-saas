@@ -1,14 +1,22 @@
 import { useQueryErrorResetBoundary } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'motion/react';
-import type { ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 
+import { useSyncAuthLanguage } from './i18n/use-locale';
 import { RequireAuth } from './components/auth/require-auth';
+import { CookieConsentBanner } from './components/consent/cookie-consent-banner';
 import { AppShell } from './components/layout/app-shell';
 import { ErrorBoundary } from './components/state/error-boundary';
 import { ErrorState } from './components/state/error-state';
+import { RouteStatusPage } from './components/state/route-status-page';
+import { useConsent } from './features/consent/use-consent';
 import { useSession } from './features/auth/use-auth';
+import { initAnalytics } from './lib/analytics';
 import { getTransition, pageTransition, pageVariants } from './lib/motion-presets';
+import { AdminHomePage } from './routes/admin/admin-home-page';
+import { LegalPage } from './routes/legal/legal-page';
 import { ForgotPasswordPage } from './routes/auth/forgot-password';
 import { LoginPage } from './routes/auth/login';
 import { ResetPasswordPage } from './routes/auth/reset-password';
@@ -29,13 +37,11 @@ import { BusinessProfilePage } from './routes/settings/business-profile-page';
 import { StateGallery } from './routes/dev/state-gallery';
 import { TemplateEditorDevPage } from './routes/dev/template-editor';
 
-function NotFoundPage() {
-  return (
-    // Minimal on purpose — the designed, i18n'd version with navigation back is
-    // X.7.19. This just keeps an unmatched route from being a blank screen.
-    <div className="py-12 text-center text-sm text-muted-foreground">Page not found.</div>
-  );
-}
+// The marketing landing pulls in GSAP for its scroll animations (X.6.2). Lazy so
+// that weight never lands in the signed-in app bundle.
+const LandingPage = lazy(() =>
+  import('./routes/marketing/landing-page').then((m) => ({ default: m.LandingPage })),
+);
 
 function PageTransition({ children }: { children: ReactNode }) {
   return (
@@ -51,11 +57,11 @@ function PageTransition({ children }: { children: ReactNode }) {
   );
 }
 
-/** Everything behind a login renders inside the shell. `RequireAuth` gates it;
- * this supplies the chrome (sidebar, mobile nav, banners). A user who hasn't
- * finished onboarding (1.2.4) is sent to the wizard before they can reach any
- * shell route. */
-function AuthedLayout() {
+/** The signed-in user app, mounted under `/console` (the marketing site owns `/`,
+ * the admin center owns `/admin`). `RequireAuth` gates it; this supplies the
+ * chrome (sidebar, mobile nav, banners). A user who hasn't finished onboarding
+ * (1.2.4) is sent to the wizard before they can reach any console route. */
+function ConsoleLayout() {
   const { data: user } = useSession();
   if (user && !user.onboardingCompleted) return <Navigate to="/onboarding" replace />;
   return (
@@ -63,6 +69,17 @@ function AuthedLayout() {
       <Outlet />
     </AppShell>
   );
+}
+
+/** The admin center, mounted under `/admin`. Same `RequireAuth` as the console,
+ * plus an `ADMIN` role gate — a signed-in non-admin gets a 403, not a redirect,
+ * so a mistyped `/admin` link reads clearly. The screens themselves are still
+ * backend-only (Phase 8), so this currently renders a single status page and
+ * carries its own minimal chrome rather than the console shell. */
+function AdminLayout() {
+  const { data: user } = useSession();
+  if (user && user.role !== 'ADMIN') return <RouteStatusPage status={403} />;
+  return <Outlet />;
 }
 
 /**
@@ -85,6 +102,19 @@ function RoutedContent() {
     >
       <AnimatePresence mode="wait">
         <Routes location={location} key={location.pathname}>
+          {/* Marketing landing (X.6) — public, owns the bare domain. Redirects a
+              signed-in visitor on to their console / admin center. */}
+          <Route
+            path="/"
+            element={
+              <PageTransition>
+                <Suspense fallback={<div className="min-h-svh bg-background" />}>
+                  <LandingPage />
+                </Suspense>
+              </PageTransition>
+            }
+          />
+
           {/* Public — no shell, no session required. */}
           <Route
             path="/login"
@@ -127,6 +157,25 @@ function RoutedContent() {
             }
           />
 
+          {/* Legal pages (X.4.1 / X.4.2) — public, no shell; linked from the footer
+              everywhere so a visitor can read them before signing up. */}
+          <Route
+            path="/privacy"
+            element={
+              <PageTransition>
+                <LegalPage doc="privacy" />
+              </PageTransition>
+            }
+          />
+          <Route
+            path="/terms"
+            element={
+              <PageTransition>
+                <LegalPage doc="terms" />
+              </PageTransition>
+            }
+          />
+
           {/* Authenticated — gated by RequireAuth. */}
           <Route element={<RequireAuth />}>
             {/* Onboarding wizard (1.2.4): authed, but its own focused layout — no
@@ -141,10 +190,11 @@ function RoutedContent() {
               }
             />
 
-            {/* The rest of the app — wrapped in the shell, gated on onboarding. */}
-            <Route element={<AuthedLayout />}>
+            {/* The signed-in user app — under /console, wrapped in the shell,
+                gated on onboarding. */}
+            <Route path="/console" element={<ConsoleLayout />}>
               <Route
-                path="/"
+                index
                 element={
                   <PageTransition>
                     <DashboardPage />
@@ -152,7 +202,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/invoices"
+                path="invoices"
                 element={
                   <PageTransition>
                     <InvoicesListPage />
@@ -160,7 +210,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/invoices/new"
+                path="invoices/new"
                 element={
                   <PageTransition>
                     <InvoiceCreatePage />
@@ -168,7 +218,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/invoices/:id"
+                path="invoices/:id"
                 element={
                   <PageTransition>
                     <InvoiceDetailPage />
@@ -176,7 +226,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/invoices/:id/edit"
+                path="invoices/:id/edit"
                 element={
                   <PageTransition>
                     <InvoiceEditPage />
@@ -184,7 +234,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/clients"
+                path="clients"
                 element={
                   <PageTransition>
                     <ClientsListPage />
@@ -192,7 +242,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/products"
+                path="products"
                 element={
                   <PageTransition>
                     <ProductsListPage />
@@ -200,7 +250,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/templates"
+                path="templates"
                 element={
                   <PageTransition>
                     <TemplatesListPage />
@@ -208,7 +258,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/templates/new"
+                path="templates/new"
                 element={
                   <PageTransition>
                     <TemplateEditorPage />
@@ -216,7 +266,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/templates/:id"
+                path="templates/:id"
                 element={
                   <PageTransition>
                     <TemplateEditorPage />
@@ -224,7 +274,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/pricing"
+                path="pricing"
                 element={
                   <PageTransition>
                     <PricingPage />
@@ -232,7 +282,7 @@ function RoutedContent() {
                 }
               />
               <Route
-                path="/settings"
+                path="settings"
                 element={
                   <PageTransition>
                     <BusinessProfilePage />
@@ -242,7 +292,7 @@ function RoutedContent() {
               {/* Dev-only states gallery (0.4b.11) — tree-shaken out of production builds. */}
               {import.meta.env.DEV && (
                 <Route
-                  path="/dev/states"
+                  path="dev/states"
                   element={
                     <PageTransition>
                       <StateGallery />
@@ -252,7 +302,7 @@ function RoutedContent() {
               )}
               {import.meta.env.DEV && (
                 <Route
-                  path="/dev/template-editor"
+                  path="dev/template-editor"
                   element={
                     <PageTransition>
                       <TemplateEditorDevPage />
@@ -264,20 +314,81 @@ function RoutedContent() {
                 path="*"
                 element={
                   <PageTransition>
-                    <NotFoundPage />
+                    <RouteStatusPage status={404} />
+                  </PageTransition>
+                }
+              />
+            </Route>
+
+            {/* Admin center — under /admin, ADMIN role only. Backend-only for now
+                (Phase 8), so this is a single status page. */}
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route
+                index
+                element={
+                  <PageTransition>
+                    <AdminHomePage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="*"
+                element={
+                  <PageTransition>
+                    <RouteStatusPage status={404} />
                   </PageTransition>
                 }
               />
             </Route>
           </Route>
+
+          {/* Anything else — public, no shell. */}
+          <Route
+            path="*"
+            element={
+              <PageTransition>
+                <RouteStatusPage status={404} />
+              </PageTransition>
+            }
+          />
         </Routes>
       </AnimatePresence>
     </ErrorBoundary>
   );
 }
 
+/** Keeps `<html lang>` and i18next in step with the signed-in user's saved
+ * language (X.1.4 / X.1.6). Renders nothing. */
+function LocaleEffects() {
+  const { i18n } = useTranslation();
+  useSyncAuthLanguage();
+  const lang = i18n.resolvedLanguage ?? i18n.language ?? 'en';
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+  return null;
+}
+
+/** Cookie-consent side effects (X.4.3): (re)initialise analytics whenever the
+ * visitor's consent choice changes — opting in through the banner then takes
+ * effect without a reload. `initAnalytics()` is a no-op until consent is `all`. */
+function AnalyticsEffects() {
+  const { choice } = useConsent();
+  useEffect(() => {
+    initAnalytics();
+  }, [choice]);
+  return null;
+}
+
 function App() {
-  return <RoutedContent />;
+  return (
+    <>
+      <LocaleEffects />
+      <AnalyticsEffects />
+      <RoutedContent />
+      <CookieConsentBanner />
+    </>
+  );
 }
 
 export default App;

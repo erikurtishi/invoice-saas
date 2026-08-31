@@ -2,6 +2,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type ComponentPropsWithoutRef, type HTMLAttributes, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../lib/cn';
 import {
@@ -41,6 +42,7 @@ export function ModalContent({
   children,
   ...props
 }: ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
+  const { t } = useTranslation();
   return (
     <DialogPrimitive.Portal forceMount>
       <DialogPrimitive.Overlay asChild forceMount>
@@ -78,7 +80,7 @@ export function ModalContent({
               )}
             >
               <X className="size-4" aria-hidden="true" />
-              <span className="sr-only">Close</span>
+              <span className="sr-only">{t('common.close')}</span>
             </DialogPrimitive.Close>
           </motion.div>
         </DialogPrimitive.Content>

@@ -1,6 +1,8 @@
+import { motion } from 'motion/react';
 import { forwardRef } from 'react';
 
 import { cn } from '../../lib/cn';
+import { switchThumbSpring } from '../../lib/motion-presets';
 
 export interface SwitchProps {
   checked: boolean;
@@ -16,16 +18,21 @@ export interface SwitchProps {
  * A minimal toggle — `<button role="switch">`, no dependency. Used for the
  * template editor's block-visibility toggles (3.2.3) and anywhere a boolean needs
  * a switch rather than a checkbox.
+ *
+ * X.3.2 micro-interaction: the button dips on press (`whileTap`) and the knob
+ * springs between positions (`switchThumbSpring`); both flatten to an instant
+ * change for `prefers-reduced-motion` users via the app-wide `MotionConfig`.
  */
 export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(
   ({ checked, onCheckedChange, id, disabled = false, className, ...aria }, ref) => (
-    <button
+    <motion.button
       ref={ref}
       id={id}
       type="button"
       role="switch"
       aria-checked={checked}
       disabled={disabled}
+      {...(disabled ? {} : { whileTap: { scale: 0.94 } })}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
         'inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent p-0.5 transition-colors',
@@ -36,13 +43,12 @@ export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(
       )}
       {...aria}
     >
-      <span
-        className={cn(
-          'size-3.5 rounded-full bg-background shadow-sm transition-transform',
-          checked ? 'translate-x-4' : 'translate-x-0',
-        )}
+      <motion.span
+        className="size-3.5 rounded-full bg-background shadow-sm"
+        animate={{ x: checked ? 16 : 0 }}
+        transition={switchThumbSpring}
       />
-    </button>
+    </motion.button>
   ),
 );
 Switch.displayName = 'Switch';

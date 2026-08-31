@@ -1,4 +1,5 @@
 import { resetPasswordSchema } from '@invoice-saas/shared';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { z } from 'zod';
 
@@ -16,21 +17,8 @@ import { useZodForm } from '../../lib/use-zod-form';
 const formSchema = resetPasswordSchema.pick({ password: true });
 type FormValues = z.infer<typeof formSchema>;
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  title: 'Choose a new password',
-  password: 'New password',
-  passwordHint: 'At least 10 characters.',
-  submit: 'Update password',
-  backToLogin: 'Back to log in',
-  updated: 'Password updated — you can log in now.',
-  missingTokenTitle: 'This link is invalid',
-  missingTokenBody:
-    'The reset link is missing its token. Request a new link and use the most recent email.',
-  requestNew: 'Request a new link',
-} as const;
-
 export function ResetPasswordPage() {
+  const { t } = useTranslation();
   const [params] = useSearchParams();
   const token = params.get('token');
   const navigate = useNavigate();
@@ -42,16 +30,16 @@ export function ResetPasswordPage() {
   if (!token) {
     return (
       <AuthCard
-        title={COPY.missingTokenTitle}
+        title={t('auth.resetMissingTokenTitle')}
         footer={
           <Link to="/login" className="font-medium text-primary hover:underline">
-            {COPY.backToLogin}
+            {t('auth.backToLogin')}
           </Link>
         }
       >
-        <p className="text-sm text-muted-foreground">{COPY.missingTokenBody}</p>
+        <p className="text-sm text-muted-foreground">{t('auth.resetMissingTokenBody')}</p>
         <Button asChild variant="outline" className="mt-4 w-full">
-          <Link to="/forgot-password">{COPY.requestNew}</Link>
+          <Link to="/forgot-password">{t('auth.resetRequestNew')}</Link>
         </Button>
       </AuthCard>
     );
@@ -60,7 +48,7 @@ export function ResetPasswordPage() {
   const onSubmit = form.handleSubmit(async (values) => {
     try {
       await mutateAsync({ token, password: values.password });
-      toast.success(COPY.updated);
+      toast.success(t('auth.resetUpdated'));
       void navigate('/login', { replace: true });
     } catch (err) {
       // A malformed password comes back 422 with `fields` → inline. A stale/expired
@@ -78,10 +66,10 @@ export function ResetPasswordPage() {
 
   return (
     <AuthCard
-      title={COPY.title}
+      title={t('auth.resetTitle')}
       footer={
         <Link to="/login" className="font-medium text-primary hover:underline">
-          {COPY.backToLogin}
+          {t('auth.backToLogin')}
         </Link>
       }
     >
@@ -89,9 +77,9 @@ export function ResetPasswordPage() {
         {bannerMessage != null && <AuthFormError>{bannerMessage}</AuthFormError>}
 
         <FormField
-          label={COPY.password}
+          label={t('auth.resetPassword')}
           required
-          hint={COPY.passwordHint}
+          hint={t('auth.passwordHint')}
           error={form.formState.errors.password?.message}
         >
           {({ controlProps, invalid }) => (
@@ -107,7 +95,7 @@ export function ResetPasswordPage() {
         </FormField>
 
         <Button type="submit" isLoading={isPending} className="w-full">
-          {COPY.submit}
+          {t('auth.resetSubmit')}
         </Button>
       </form>
     </AuthCard>

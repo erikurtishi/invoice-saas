@@ -23,7 +23,7 @@ import { HttpError } from '../../lib/http-error';
 /**
  * Backlog 0.4b.11 — dev-only gallery of every state primitive in every state, so
  * reviewing and QAing states is a single page instead of a hunt through screens.
- * Mounted at `/dev/states` only when `import.meta.env.DEV` (see `App.tsx`).
+ * Mounted at `/console/dev/states` only when `import.meta.env.DEV` (see `App.tsx`).
  */
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -248,6 +248,43 @@ export function StateGallery() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             Toggle DevTools → Network → Offline. The banner slides in at the top of the shell.
+          </CardContent>
+        </Card>
+      </Section>
+
+      <Section title="Force a state on a real screen (X.7.27)">
+        <Card>
+          <CardHeader>
+            <CardTitle>?force= URL param</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
+            <p>
+              Append <code className="rounded bg-muted px-1">?force=&lt;state&gt;</code> to any
+              screen in a dev build to push its <code>&lt;QueryBoundary&gt;</code> into that state
+              without throttling the network. Reload after changing the param.
+            </p>
+            <ul className="ml-4 list-disc">
+              <li>
+                <code>loading</code> · <code>error</code> · <code>empty</code> ·{' '}
+                <code>refetching</code>
+              </li>
+              <li>
+                scope to one boundary: <code>?force=empty:invoices</code> (names:{' '}
+                <code>clients</code>, <code>products</code>, <code>invoices</code>,{' '}
+                <code>invoice-detail</code>, <code>templates</code>, <code>dashboard</code>)
+              </li>
+            </ul>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {(['loading', 'error', 'empty', 'refetching'] as const).map((s) => (
+                <a
+                  key={s}
+                  href={`/console/invoices?force=${s}`}
+                  className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
+                >
+                  /console/invoices?force={s}
+                </a>
+              ))}
+            </div>
           </CardContent>
         </Card>
       </Section>

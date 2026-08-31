@@ -1,5 +1,6 @@
 import { AlertCircle, CheckCircle2, Info, Loader2, X } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../lib/cn';
 
@@ -34,6 +35,7 @@ export interface ToastProps {
  * component is what that system will render for each toast.
  */
 export function Toast({ variant, title, description, onDismiss, action, className }: ToastProps) {
+  const { t } = useTranslation();
   const Icon = VARIANT_ICON[variant];
   return (
     <div
@@ -59,7 +61,7 @@ export function Toast({ variant, title, description, onDismiss, action, classNam
           className="shrink-0 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <X className="size-4" aria-hidden="true" />
-          <span className="sr-only">Dismiss</span>
+          <span className="sr-only">{t('common.dismiss')}</span>
         </button>
       )}
     </div>

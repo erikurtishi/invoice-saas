@@ -6,11 +6,12 @@ import {
 } from '@invoice-saas/shared';
 import { ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 
 import { TemplateEditor } from '../../components/template/template-editor';
 import { QueryBoundary } from '../../components/state/query-boundary';
-import { SkeletonForm } from '../../components/state/skeletons';
+import { SkeletonTemplateEditor } from '../../components/state/skeletons';
 import { Button, ConfirmDialog, Input } from '../../components/ui';
 import { useSession } from '../../features/auth/use-auth';
 import {
@@ -21,22 +22,6 @@ import {
 import { useToast } from '../../hooks/use-toast';
 import { toUserMessage } from '../../lib/error-message';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  back: 'Templates',
-  namePlaceholder: 'Template name',
-  nameRequired: 'Enter a template name.',
-  save: 'Save',
-  saveNew: 'Create template',
-  saved: 'Template saved.',
-  created: 'Template created.',
-  saveFailed: "Couldn't save this template. Try again.",
-  unsaved: 'Unsaved changes',
-  discardTitle: 'Discard changes?',
-  discardBody: 'Your edits to this template will be lost.',
-  discardConfirm: 'Discard',
-} as const;
-
 /**
  * The template editor screen (backlog 3.3 — hosting the Epic 3.2 editor with
  * persistence). `/templates/new` starts from the default config; `/templates/:id`
@@ -46,7 +31,7 @@ export function TemplateEditorPage() {
   const { id } = useParams<{ id: string }>();
   const { data: user } = useSession();
 
-  if (user && user.tier === 'FREE') return <Navigate to="/templates" replace />;
+  if (user && user.tier === 'FREE') return <Navigate to="/console/templates" replace />;
 
   if (id === undefined) return <EditorForm mode="new" />;
   return <LoadExisting id={id} />;
@@ -55,7 +40,15 @@ export function TemplateEditorPage() {
 function LoadExisting({ id }: { id: string }) {
   const query = useTemplate(id);
   return (
-    <QueryBoundary query={query} loading={<SkeletonForm fields={6} />} isEmpty={() => false}>
+    <QueryBoundary
+      query={query}
+      loading={
+        <div className="h-[calc(100dvh-9rem)] min-h-[560px]">
+          <SkeletonTemplateEditor />
+        </div>
+      }
+      isEmpty={() => false}
+    >
       {(template) => <EditorForm mode="edit" template={template} />}
     </QueryBoundary>
   );
@@ -67,6 +60,7 @@ interface EditorFormProps {
 }
 
 function EditorForm({ mode, template }: EditorFormProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const toast = useToast();
   const createMutation = useCreateTemplate();
@@ -84,7 +78,7 @@ function EditorForm({ mode, template }: EditorFormProps) {
   const dirty = name !== initialName || JSON.stringify(config) !== JSON.stringify(initialConfig);
 
   const leave = () => {
-    void navigate('/templates');
+    void navigate('/console/templates');
   };
   const onBack = () => {
     if (dirty) setShowDiscard(true);
@@ -94,7 +88,7 @@ function EditorForm({ mode, template }: EditorFormProps) {
   const save = async () => {
     const parsedName = templateNameSchema.safeParse(name);
     if (!parsedName.success) {
-      setNameError(parsedName.error.issues[0]?.message ?? COPY.nameRequired);
+      setNameError(parsedName.error.issues[0]?.message ?? t('templateEditor.nameRequired'));
       return;
     }
     setNameError(null);
@@ -102,14 +96,14 @@ function EditorForm({ mode, template }: EditorFormProps) {
     try {
       if (mode === 'edit' && template) {
         await updateMutation.mutateAsync({ id: template.id, input });
-        toast.success(COPY.saved);
+        toast.success(t('templateEditor.saved'));
       } else {
         await createMutation.mutateAsync(input);
-        toast.success(COPY.created);
+        toast.success(t('templateEditor.created'));
       }
-      void navigate('/templates');
+      void navigate('/console/templates');
     } catch (err) {
-      toast.error(toUserMessage(err) || COPY.saveFailed);
+      toast.error(toUserMessage(err) || t('templateEditor.saveFailed'));
     }
   };
 
@@ -117,12 +111,12 @@ function EditorForm({ mode, template }: EditorFormProps) {
     <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-3 py-2">
       <Button variant="ghost" size="sm" onClick={onBack}>
         <ArrowLeft className="size-4" aria-hidden />
-        {COPY.back}
+        {t('nav.templates')}
       </Button>
       <div className="flex min-w-0 flex-1 flex-col">
         <Input
-          aria-label={COPY.namePlaceholder}
-          placeholder={COPY.namePlaceholder}
+          aria-label={t('templateEditor.namePlaceholder')}
+          placeholder={t('templateEditor.namePlaceholder')}
           value={name}
           invalid={nameError !== null}
           onChange={(e) => {
@@ -133,13 +127,15 @@ function EditorForm({ mode, template }: EditorFormProps) {
         />
         {nameError && <span className="mt-1 text-xs text-destructive">{nameError}</span>}
       </div>
-      {dirty && <span className="text-xs text-muted-foreground">{COPY.unsaved}</span>}
+      {dirty && (
+        <span className="text-xs text-muted-foreground">{t('templateEditor.unsaved')}</span>
+      )}
       <Button
         onClick={() => void save()}
         isLoading={isPending}
         disabled={mode === 'edit' && !dirty}
       >
-        {mode === 'edit' ? COPY.save : COPY.saveNew}
+        {mode === 'edit' ? t('common.save') : t('templateEditor.saveNew')}
       </Button>
     </div>
   );
@@ -151,9 +147,9 @@ function EditorForm({ mode, template }: EditorFormProps) {
       <ConfirmDialog
         open={showDiscard}
         onOpenChange={setShowDiscard}
-        title={COPY.discardTitle}
-        description={COPY.discardBody}
-        confirmLabel={COPY.discardConfirm}
+        title={t('templateEditor.discardTitle')}
+        description={t('templateEditor.discardBody')}
+        confirmLabel={t('templateEditor.discardConfirm')}
         destructive
         onConfirm={leave}
       />

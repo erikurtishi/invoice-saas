@@ -125,6 +125,16 @@ const lineItems: BlockRenderer = (ctx) => {
     `<th class="num">${esc(labels.amount)}</th>`,
   ].filter(Boolean);
 
+  // A draft can be previewed with no lines yet (X.7.7). Show one muted
+  // placeholder row spanning the table rather than an empty `<tbody>` that reads
+  // as broken. A saved/issued invoice always has at least one line, so the PDF
+  // path never renders this.
+  const placeholderRow = lines(
+    `<tr class="items-empty">`,
+    `  <td class="items-empty-cell" colspan="${cols.length}">${esc(labels.lineItemsEmpty)}</td>`,
+    `</tr>`,
+  );
+
   const rows = data.lineItems.map((item) => {
     const qty = formatQuantity(item.quantityMilli, data.language);
     return lines(
@@ -150,7 +160,7 @@ const lineItems: BlockRenderer = (ctx) => {
     `  <table class="items">`,
     `    <thead><tr>${cols.join('')}</tr></thead>`,
     `    <tbody>`,
-    ...rows,
+    ...(rows.length > 0 ? rows : [placeholderRow]),
     `    </tbody>`,
     `  </table>`,
     `</section>`,

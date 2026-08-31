@@ -42,7 +42,8 @@ const tenant = await prisma.user.create({
     city: 'Скопје',
     postalCode: '1000',
     country: 'MK',
-    preferredLanguage: 'MK',
+    uiLanguage: 'MK',
+    invoiceLanguage: 'MK',
   },
 });
 const db = scopedPrisma(tenant.id) as unknown as Parameters<typeof createDraft>[0];

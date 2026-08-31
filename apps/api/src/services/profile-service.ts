@@ -36,7 +36,8 @@ function toProfileResponse(user: User): BusinessProfileResponse {
     defaultCurrency: user.defaultCurrency,
     defaultPaymentTermsDays: user.defaultPaymentTermsDays,
     defaultPaperSize: user.defaultPaperSize,
-    preferredLanguage: user.preferredLanguage,
+    uiLanguage: user.uiLanguage,
+    invoiceLanguage: user.invoiceLanguage,
     logoUrl: user.logoUrl,
   };
 }
@@ -71,7 +72,8 @@ export async function updateProfile(
       defaultCurrency: input.defaultCurrency,
       defaultPaymentTermsDays: input.defaultPaymentTermsDays,
       defaultPaperSize: input.defaultPaperSize,
-      preferredLanguage: input.preferredLanguage,
+      uiLanguage: input.uiLanguage,
+      invoiceLanguage: input.invoiceLanguage,
     },
   });
   return toProfileResponse(user);

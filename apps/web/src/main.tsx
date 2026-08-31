@@ -9,8 +9,14 @@ import App from './App.tsx';
 import { AppErrorBoundary } from './components/AppErrorBoundary.tsx';
 import { ToastProvider } from './components/state/toast-viewport.tsx';
 import { TooltipProvider } from './components/ui/tooltip.tsx';
+// Initialises i18next before the first render (Epic X.1.1). Side-effect import.
+import './i18n';
 import './index.css';
+import { initObservability } from './lib/observability.ts';
 import { queryClient } from './lib/query-client.ts';
+
+// Error monitoring (X.5.5) — no-op unless VITE_SENTRY_DSN is set.
+initObservability();
 
 const rootElement = document.getElementById('root');
 

@@ -21,6 +21,17 @@ export const PROFILE_LANGUAGES = ['EN', 'SQ', 'MK'] as const;
 export type ProfileLanguage = (typeof PROFILE_LANGUAGES)[number];
 
 /**
+ * Native language names, for the settings selects and the in-app language switcher
+ * (Epic X.1.4). Endonyms on purpose — a Macedonian speaker looks for "Македонски",
+ * not "Macedonian". The English label stays plain "English".
+ */
+export const LANGUAGE_ENDONYMS: Record<ProfileLanguage, string> = {
+  EN: 'English',
+  SQ: 'Shqip',
+  MK: 'Македонски',
+};
+
+/**
  * Default-currency choices offered in the profile form. Curated rather than "any
  * ISO 4217 string": these cover the target markets (MK/AL/XK + US) plus the common
  * international ones. Per-invoice currency (4.2.7) is a separate, wider setting.
@@ -67,7 +78,12 @@ export const businessProfileSchema = z.object({
     .min(0, 'Payment terms cannot be negative.')
     .max(PAYMENT_TERMS_MAX_DAYS, `Use ${PAYMENT_TERMS_MAX_DAYS} days or fewer.`),
   defaultPaperSize: z.enum(PAPER_SIZES, { message: 'Choose a default paper size.' }),
-  preferredLanguage: z.enum(PROFILE_LANGUAGES, { message: 'Choose a language.' }),
+  /** Language of the app UI itself (X.1.4) — drives react-i18next. Independent of
+   * `invoiceLanguage`: a Macedonian-market business may run the app in Albanian. */
+  uiLanguage: z.enum(PROFILE_LANGUAGES, { message: 'Choose a language.' }),
+  /** Language of the *printed invoice* labels (spec §10, X.1.3). Seeds the invoice
+   * form's per-document `language` field; never touches the app UI. */
+  invoiceLanguage: z.enum(PROFILE_LANGUAGES, { message: 'Choose a language.' }),
 });
 export type BusinessProfileInput = z.infer<typeof businessProfileSchema>;
 
@@ -87,7 +103,8 @@ export const businessProfileResponseSchema = z.object({
   defaultCurrency: z.string(),
   defaultPaymentTermsDays: z.number().int(),
   defaultPaperSize: z.enum(PAPER_SIZES),
-  preferredLanguage: z.enum(PROFILE_LANGUAGES),
+  uiLanguage: z.enum(PROFILE_LANGUAGES),
+  invoiceLanguage: z.enum(PROFILE_LANGUAGES),
   /** Root-relative path (`/uploads/logos/…`); the web app resolves it against the
    * API origin. `null` until a logo is uploaded (1.2.3). */
   logoUrl: z.string().nullable(),
@@ -108,3 +125,18 @@ export const LOGO_ACCEPT_ATTR = LOGO_ACCEPTED_MIME.join(',');
 
 /** Longest edge of the stored logo, in pixels — the service downscales to fit. */
 export const LOGO_MAX_DIMENSION = 512;
+
+// --- Account deletion (backlog X.4.4) -------------------------------------
+
+/**
+ * Body for `DELETE /profile` — the tenant closing their own account. Both fields
+ * are a deliberate friction step in front of an irreversible cascade delete: the
+ * current password re-authenticates the session, and `confirmEmail` must match
+ * the account email (checked case-insensitively server-side) so a mistyped or
+ * borrowed session can't trigger it by accident.
+ */
+export const deleteAccountSchema = z.object({
+  password: z.string().min(1, 'Enter your password to confirm.'),
+  confirmEmail: z.string().min(1, 'Type your account email to confirm.'),
+});
+export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;

@@ -7,8 +7,10 @@ import {
   type InvoiceStatusFilter,
   minorToAmountString,
 } from '@invoice-saas/shared';
+import type { TFunction } from 'i18next';
 import { Download, FileDown, Mail, MoreHorizontal, Plus, Search } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { EmptyState } from '../../components/state/empty-state';
@@ -22,6 +24,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
+  RecordCard,
+  RecordCardList,
   Select,
   Table,
   TableBody,
@@ -37,83 +41,25 @@ import {
   useExportInvoicesCsv,
   useInvoices,
 } from '../../features/invoices/use-invoices';
+import { useFormatters } from '../../i18n/format';
 import { useDebouncedValue } from '../../hooks/use-debounced-value';
 import { useToast } from '../../hooks/use-toast';
 import { toUserMessage } from '../../lib/error-message';
-import { formatDate } from '../../lib/format-time';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  title: 'Invoices',
-  description: 'Every document you’ve issued — search, filter and export.',
-  newInvoice: 'New invoice',
-  exportCsv: 'Export CSV',
-  searchPlaceholder: 'Search by number or client',
-  searchLabel: 'Search invoices',
-  statusLabel: 'Status',
-  typeLabel: 'Document type',
-  sortLabel: 'Sort',
-  fromLabel: 'From',
-  toLabel: 'To',
-  allTypes: 'All types',
-  colNumber: 'Number',
-  colType: 'Type',
-  colClient: 'Client',
-  colDate: 'Issue date',
-  colActivity: 'Activity',
-  colTotal: 'Total',
-  activityNone: '—',
-  downloadsTitle: (n: number) => `Downloaded ${n} time${n === 1 ? '' : 's'}`,
-  lastSentTitle: (to: string, when: string) => `Last sent to ${to} on ${when}`,
-  rowActions: 'Invoice actions',
-  open: 'Open',
-  duplicate: 'Duplicate',
-  download: 'Download PDF',
-  delete: 'Delete',
-  draftBadge: 'Draft',
-  none: '—',
-  nothingYetTitle: 'No invoices yet',
-  nothingYetBody: 'Create your first invoice, proforma, quote, credit note or receipt.',
-  nothingYetCta: 'Create your first invoice',
-  nothingFoundTitle: 'No invoices match those filters',
-  nothingFoundBody: 'Try a wider date range or a different search.',
-  deletedToast: 'Invoice deleted.',
-  deleteFailed: "Couldn't delete this invoice.",
-  duplicatedToast: 'Duplicated — opened as a new draft.',
-  duplicateFailed: "Couldn't duplicate this invoice.",
-  downloadFailed: "Couldn't generate the PDF.",
-  exportFailed: "Couldn't export the CSV.",
-  deleteTitle: 'Delete this invoice?',
-  deleteBody: (n: string) =>
-    `${n} will be removed from your library. Its number stays used — invoice numbers are never reused.`,
-  deleteConfirm: 'Delete invoice',
-  pagePrev: 'Previous',
-  pageNext: 'Next',
-  pageStatus: (page: number, total: number) => `Page ${page} of ${total}`,
-} as const;
+const STATUS_LABEL_KEY = {
+  issued: 'invoices.statusIssued',
+  draft: 'invoices.statusDrafts',
+  all: 'invoices.statusAll',
+} as const satisfies Record<InvoiceStatusFilter, string>;
 
-const STATUS_OPTIONS: { value: InvoiceStatusFilter; label: string }[] = [
-  { value: 'issued', label: 'Issued' },
-  { value: 'draft', label: 'Drafts' },
-  { value: 'all', label: 'All' },
-];
-
-const SORT_LABELS: Record<InvoiceSort, string> = {
-  newest: 'Newest first',
-  oldest: 'Oldest first',
-  client: 'Client A–Z',
-  '-client': 'Client Z–A',
-  total: 'Total low–high',
-  '-total': 'Total high–low',
-};
-
-const TYPE_LABELS: Record<DocumentType, string> = {
-  INVOICE: 'Invoice',
-  PROFORMA: 'Proforma',
-  QUOTE: 'Quote',
-  CREDIT_NOTE: 'Credit note',
-  RECEIPT: 'Receipt',
-};
+const SORT_LABEL_KEY = {
+  newest: 'invoices.sortNewest',
+  oldest: 'invoices.sortOldest',
+  client: 'invoices.sortClientAsc',
+  '-client': 'invoices.sortClientDesc',
+  total: 'invoices.sortTotalAsc',
+  '-total': 'invoices.sortTotalDesc',
+} as const satisfies Record<InvoiceSort, string>;
 
 const ALL_TYPES = 'ALL';
 
@@ -127,15 +73,17 @@ function money(item: InvoiceListItem): string {
  * invoices not yet touched).
  */
 function ActivityCell({ item }: { item: InvoiceListItem }) {
+  const { t } = useTranslation();
+  const { formatDate } = useFormatters();
   if (item.downloadCount === 0 && !item.lastSentTo && !item.lastSentAt) {
-    return <span className="text-muted-foreground">{COPY.activityNone}</span>;
+    return <span className="text-muted-foreground">{t('common.none')}</span>;
   }
   return (
     <span className="flex items-center gap-3 text-xs text-muted-foreground">
       {item.downloadCount > 0 && (
         <span
           className="inline-flex items-center gap-1 tabular-nums"
-          title={COPY.downloadsTitle(item.downloadCount)}
+          title={t('invoices.downloadsTitle', { count: item.downloadCount })}
         >
           <Download className="size-3.5" aria-hidden />
           {item.downloadCount}
@@ -146,7 +94,10 @@ function ActivityCell({ item }: { item: InvoiceListItem }) {
           className="inline-flex min-w-0 items-center gap-1"
           title={
             item.lastSentTo
-              ? COPY.lastSentTitle(item.lastSentTo, formatDate(item.lastSentAt))
+              ? t('invoices.lastSentTitle', {
+                  recipient: item.lastSentTo,
+                  when: formatDate(item.lastSentAt),
+                })
               : formatDate(item.lastSentAt)
           }
         >
@@ -165,6 +116,8 @@ function ActivityCell({ item }: { item: InvoiceListItem }) {
  * `<QueryBoundary>` + five-states shape as the client / product lists.
  */
 export function InvoicesListPage() {
+  const { t } = useTranslation();
+  const { formatDate } = useFormatters();
   const navigate = useNavigate();
   const toast = useToast();
 
@@ -183,6 +136,12 @@ export function InvoicesListPage() {
   const duplicateMutation = useDuplicateInvoice();
   const downloadMutation = useDownloadInvoicePdf();
   const exportMutation = useExportInvoicesCsv();
+
+  const statusOptions: { value: InvoiceStatusFilter; label: string }[] = (
+    ['issued', 'draft', 'all'] as const
+  ).map((v) => ({ value: v, label: t(STATUS_LABEL_KEY[v]) }));
+
+  const typeLabel = (dt: DocumentType, tt: TFunction) => tt(`docTypes.${dt}`);
 
   const params = {
     search: search || undefined,
@@ -215,10 +174,10 @@ export function InvoicesListPage() {
   const runDuplicate = async (id: string) => {
     try {
       const copy = await duplicateMutation.mutateAsync(id);
-      toast.success(COPY.duplicatedToast);
-      void navigate(`/invoices/${copy.id}/edit`);
+      toast.success(t('invoices.duplicatedToast'));
+      void navigate(`/console/invoices/${copy.id}/edit`);
     } catch (err) {
-      toast.error(toUserMessage(err) || COPY.duplicateFailed);
+      toast.error(toUserMessage(err) || t('invoices.duplicateFailed'));
     }
   };
 
@@ -226,7 +185,7 @@ export function InvoicesListPage() {
     try {
       await downloadMutation.mutateAsync({ id });
     } catch (err) {
-      toast.error(toUserMessage(err) || COPY.downloadFailed);
+      toast.error(toUserMessage(err) || t('invoices.downloadFailed'));
     }
   };
 
@@ -234,19 +193,55 @@ export function InvoicesListPage() {
     try {
       await exportMutation.mutateAsync(params);
     } catch (err) {
-      toast.error(toUserMessage(err) || COPY.exportFailed);
+      toast.error(toUserMessage(err) || t('invoices.exportFailed'));
     }
   };
+
+  const numberLink = (invoice: InvoiceListItem) => (
+    <Link
+      to={`/console/invoices/${invoice.id}`}
+      className="rounded font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {invoice.number ?? t('invoices.draftBadge')}
+    </Link>
+  );
+
+  const rowMenu = (invoice: InvoiceListItem) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label={t('invoices.rowActions')}>
+          <MoreHorizontal className="size-4" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => void navigate(`/console/invoices/${invoice.id}`)}>
+          {t('invoices.open')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void runDuplicate(invoice.id)}>
+          {t('invoices.duplicate')}
+        </DropdownMenuItem>
+        {invoice.status === 'ISSUED' && (
+          <DropdownMenuItem onSelect={() => void runDownload(invoice.id)}>
+            <Download className="size-4" aria-hidden />
+            {t('invoices.downloadPdf')}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem destructive onSelect={() => setDeleteTarget(invoice)}>
+          {t('common.delete')}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
       await deleteMutation.mutateAsync(deleteTarget.id);
-      toast.success(COPY.deletedToast);
+      toast.success(t('invoices.deletedToast'));
       if (page > 1 && query.data?.items.length === 1) setPage((p) => Math.max(1, p - 1));
       setDeleteTarget(null);
     } catch (err) {
-      toast.error(toUserMessage(err) || COPY.deleteFailed);
+      toast.error(toUserMessage(err) || t('invoices.deleteFailed'));
       throw err;
     }
   };
@@ -255,8 +250,8 @@ export function InvoicesListPage() {
     <div className="mx-auto max-w-6xl">
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">{COPY.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{COPY.description}</p>
+          <h1 className="text-xl font-semibold text-foreground">{t('invoices.listTitle')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('invoices.listDescription')}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -266,12 +261,12 @@ export function InvoicesListPage() {
             disabled={query.data?.total === 0}
           >
             <FileDown className="size-4" aria-hidden />
-            {COPY.exportCsv}
+            {t('invoices.exportCsv')}
           </Button>
           <Button asChild>
-            <Link to="/invoices/new">
+            <Link to="/console/invoices/new">
               <Plus className="size-4" aria-hidden />
-              {COPY.newInvoice}
+              {t('invoices.newInvoice')}
             </Link>
           </Button>
         </div>
@@ -286,8 +281,8 @@ export function InvoicesListPage() {
           <Input
             className="pl-9"
             type="search"
-            aria-label={COPY.searchLabel}
-            placeholder={COPY.searchPlaceholder}
+            aria-label={t('invoices.searchLabel')}
+            placeholder={t('invoices.searchPlaceholder')}
             value={searchInput}
             onChange={(e) => {
               setSearchInput(e.target.value);
@@ -297,8 +292,8 @@ export function InvoicesListPage() {
         </div>
 
         <Select
-          aria-label={COPY.statusLabel}
-          options={STATUS_OPTIONS}
+          aria-label={t('invoices.statusLabel')}
+          options={statusOptions}
           value={status}
           onValueChange={(v) => {
             setStatus(v as InvoiceStatusFilter);
@@ -307,10 +302,10 @@ export function InvoicesListPage() {
         />
 
         <Select
-          aria-label={COPY.typeLabel}
+          aria-label={t('invoices.typeLabel')}
           options={[
-            { value: ALL_TYPES, label: COPY.allTypes },
-            ...DOCUMENT_TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] })),
+            { value: ALL_TYPES, label: t('invoices.allTypes') },
+            ...DOCUMENT_TYPES.map((dt) => ({ value: dt, label: typeLabel(dt, t) })),
           ]}
           value={type}
           onValueChange={(v) => {
@@ -320,15 +315,15 @@ export function InvoicesListPage() {
         />
 
         <Select
-          aria-label={COPY.sortLabel}
-          options={INVOICE_SORT_VALUES.map((s) => ({ value: s, label: SORT_LABELS[s] }))}
+          aria-label={t('invoices.sortLabel')}
+          options={INVOICE_SORT_VALUES.map((s) => ({ value: s, label: t(SORT_LABEL_KEY[s]) }))}
           value={sort}
           onValueChange={(v) => setSort(v as InvoiceSort)}
         />
 
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground" htmlFor="inv-from">
-            {COPY.fromLabel}
+            {t('invoices.fromLabel')}
           </label>
           <Input
             id="inv-from"
@@ -342,7 +337,7 @@ export function InvoicesListPage() {
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground" htmlFor="inv-to">
-            {COPY.toLabel}
+            {t('invoices.toLabel')}
           </label>
           <Input
             id="inv-to"
@@ -357,6 +352,7 @@ export function InvoicesListPage() {
       </div>
 
       <QueryBoundary
+        name="invoices"
         query={query}
         loading={<SkeletonTable rows={8} columns={6} />}
         isEmpty={(data) => data.total === 0}
@@ -364,20 +360,20 @@ export function InvoicesListPage() {
           filtersActive ? (
             <EmptyState
               variant="nothing-found"
-              title={COPY.nothingFoundTitle}
-              description={COPY.nothingFoundBody}
+              title={t('invoices.nothingFoundTitle')}
+              description={t('invoices.nothingFoundBody')}
               onClearFilters={clearFilters}
             />
           ) : (
             <EmptyState
               variant="nothing-yet"
-              title={COPY.nothingYetTitle}
-              description={COPY.nothingYetBody}
+              title={t('invoices.nothingYetTitle')}
+              description={t('invoices.nothingYetBody')}
               action={
                 <Button asChild>
-                  <Link to="/invoices/new">
+                  <Link to="/console/invoices/new">
                     <Plus className="size-4" aria-hidden />
-                    {COPY.nothingYetCta}
+                    {t('invoices.nothingYetCta')}
                   </Link>
                 </Button>
               }
@@ -387,71 +383,59 @@ export function InvoicesListPage() {
       >
         {(data) => (
           <div className="flex flex-col gap-4">
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <RecordCardList className="flex flex-col gap-3 md:hidden">
+              {data.items.map((invoice) => (
+                <RecordCard
+                  key={invoice.id}
+                  title={numberLink(invoice)}
+                  actions={rowMenu(invoice)}
+                  fields={[
+                    { label: t('invoices.colType'), value: typeLabel(invoice.documentType, t) },
+                    {
+                      label: t('invoices.colClient'),
+                      value: invoice.clientName ?? t('common.none'),
+                    },
+                    { label: t('invoices.colDate'), value: formatDate(invoice.issueDate) },
+                    { label: t('invoices.colTotal'), value: money(invoice) },
+                    { label: t('invoices.colActivity'), value: <ActivityCell item={invoice} /> },
+                  ]}
+                />
+              ))}
+            </RecordCardList>
+
+            <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{COPY.colNumber}</TableHead>
-                    <TableHead>{COPY.colType}</TableHead>
-                    <TableHead>{COPY.colClient}</TableHead>
-                    <TableHead>{COPY.colDate}</TableHead>
-                    <TableHead>{COPY.colActivity}</TableHead>
-                    <TableHead className="text-right">{COPY.colTotal}</TableHead>
+                    <TableHead>{t('invoices.colNumber')}</TableHead>
+                    <TableHead>{t('invoices.colType')}</TableHead>
+                    <TableHead>{t('invoices.colClient')}</TableHead>
+                    <TableHead>{t('invoices.colDate')}</TableHead>
+                    <TableHead>{t('invoices.colActivity')}</TableHead>
+                    <TableHead className="text-right">{t('invoices.colTotal')}</TableHead>
                     <TableHead className="w-12" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {data.items.map((invoice) => (
                     <TableRow key={invoice.id}>
-                      <TableCell>
-                        <Link
-                          to={`/invoices/${invoice.id}`}
-                          className="rounded font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {invoice.number ?? COPY.draftBadge}
-                        </Link>
+                      <TableCell>{numberLink(invoice)}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {typeLabel(invoice.documentType, t)}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {TYPE_LABELS[invoice.documentType]}
+                        {invoice.clientName ?? t('common.none')}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {invoice.clientName ?? COPY.none}
+                        {formatDate(invoice.issueDate)}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{invoice.issueDate}</TableCell>
                       <TableCell className="max-w-[12rem]">
                         <ActivityCell item={invoice} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-foreground">
                         {money(invoice)}
                       </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" aria-label={COPY.rowActions}>
-                              <MoreHorizontal className="size-4" aria-hidden />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onSelect={() => void navigate(`/invoices/${invoice.id}`)}
-                            >
-                              {COPY.open}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => void runDuplicate(invoice.id)}>
-                              {COPY.duplicate}
-                            </DropdownMenuItem>
-                            {invoice.status === 'ISSUED' && (
-                              <DropdownMenuItem onSelect={() => void runDownload(invoice.id)}>
-                                <Download className="size-4" aria-hidden />
-                                {COPY.download}
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem destructive onSelect={() => setDeleteTarget(invoice)}>
-                              {COPY.delete}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
+                      <TableCell>{rowMenu(invoice)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -461,7 +445,7 @@ export function InvoicesListPage() {
             {data.totalPages > 1 && (
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground" role="status">
-                  {COPY.pageStatus(data.page, data.totalPages)}
+                  {t('common.pageStatus', { page: data.page, total: data.totalPages })}
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -470,7 +454,7 @@ export function InvoicesListPage() {
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={data.page <= 1}
                   >
-                    {COPY.pagePrev}
+                    {t('common.previous')}
                   </Button>
                   <Button
                     variant="outline"
@@ -478,7 +462,7 @@ export function InvoicesListPage() {
                     onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))}
                     disabled={data.page >= data.totalPages}
                   >
-                    {COPY.pageNext}
+                    {t('common.next')}
                   </Button>
                 </div>
               </div>
@@ -492,13 +476,13 @@ export function InvoicesListPage() {
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null);
         }}
-        title={COPY.deleteTitle}
+        title={t('invoices.deleteTitle')}
         description={
           deleteTarget
-            ? COPY.deleteBody(deleteTarget.number ?? deleteTarget.documentType)
+            ? t('invoices.deleteBody', { name: deleteTarget.number ?? deleteTarget.documentType })
             : undefined
         }
-        confirmLabel={COPY.deleteConfirm}
+        confirmLabel={t('invoices.deleteConfirm')}
         destructive
         onConfirm={confirmDelete}
       />

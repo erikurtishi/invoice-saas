@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import { EmptyState } from './empty-state';
 import { ErrorState } from './error-state';
+import { applyForcedState, readForcedState } from './force-state';
 import { SkeletonList } from './skeletons';
 
 /**
@@ -37,6 +38,9 @@ export interface QueryLike<T> {
 export interface QueryBoundaryProps<T> {
   query: QueryLike<T>;
   children: (data: T) => ReactNode;
+  /** Dev-only handle for `?force=<state>:<name>` (X.7.27). No runtime effect in
+   * production builds. */
+  name?: string;
   /** Defaults to: nullish, or an empty array/`{ items: [] }`/`{ data: [] }`. */
   isEmpty?: (data: T) => boolean;
   loading?: ReactNode;
@@ -58,14 +62,19 @@ function defaultIsEmpty(data: unknown): boolean {
 }
 
 export function QueryBoundary<T>({
-  query,
+  query: rawQuery,
   children,
   isEmpty = defaultIsEmpty,
   loading,
   empty,
   error,
   className,
+  name,
 }: QueryBoundaryProps<T>) {
+  // X.7.27 — `?force=<state>` overrides the real result in dev builds only.
+  const forced = import.meta.env.DEV ? readForcedState(name) : null;
+  const query = forced ? applyForcedState(rawQuery, forced) : rawQuery;
+
   const retry = () => void query.refetch();
 
   if (query.isError && query.data === undefined) {

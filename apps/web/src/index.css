@@ -13,8 +13,12 @@
      App-chrome font only. This is NOT the invoice-rendering font stack — that one
      (self-hosted Noto Sans/Serif, full Cyrillic coverage) belongs to 3.1.6 and must
      never be `system-ui` (decision D10). This token is for buttons, nav, forms: the
-     product UI, never a surface that reaches a PDF. */
-  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+     product UI, never a surface that reaches a PDF.
+     `Noto Sans` sits explicitly in the stack (before the generic `sans-serif`) so
+     Macedonian Cyrillic in the app UI has a guaranteed-covering fallback even where
+     the platform UI font's coverage is thin (X.1.6). */
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
   --font-mono: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 
   /* --- Radii ---
@@ -51,7 +55,11 @@
   --color-input: #e2e8f0;
   --color-ring: #2563eb;
 
-  --color-primary: #2563eb;
+  /* blue-700, not blue-600: as `text-primary` on the `bg-primary/10` tint (the
+     active sidebar item) blue-600 lands at 4.48:1 — a hair under WCAG AA. blue-700
+     clears every combination the app uses it in (button fill, links, tinted nav)
+     with margin. The lighter blue-600 stays as the focus `ring`. (X.5.6 axe pass.) */
+  --color-primary: #1d4ed8;
   --color-primary-foreground: #ffffff;
 
   --color-secondary: #f1f5f9;
@@ -69,8 +77,14 @@
   --color-warning-foreground: #92400e;
 }
 
+/* Dark palette. Must be a plain `:root` override, NOT another `@theme` block —
+   Tailwind v4 hoists every `@theme` block's variables to `:root` unconditionally,
+   so wrapping one in `@media` does nothing and the app renders dark for everyone
+   (found by the X.5.6 axe pass, which ran in emulated light and still saw the
+   dark tokens). A `:root` inside the media query overrides by source order only
+   when the query matches. */
 @media (prefers-color-scheme: dark) {
-  @theme {
+  :root {
     --color-background: #0b0d12;
     --color-foreground: #f1f5f9;
 
@@ -86,7 +100,11 @@
     --color-input: #2b3441;
     --color-ring: #3b82f6;
 
-    --color-primary: #3b82f6;
+    /* `#3b82f6` (blue-500) fails WCAG AA for white button text — 3.68:1 (X.5.6
+       axe scan). blue-600 clears it at 4.56:1 and still reads bright on the near-
+       black dark ground. Keep the lighter blue-500 for the focus `ring` (a UI
+       component, 3:1 bar). */
+    --color-primary: #2563eb;
     --color-primary-foreground: #ffffff;
 
     --color-secondary: #1e2530;

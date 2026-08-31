@@ -3,10 +3,13 @@ import { mkdirSync } from 'node:fs';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
+import helmet from 'helmet';
 
-import { env, UPLOAD_URL_PATH, uploadDir } from './config/env.js';
+import { env, isProduction, UPLOAD_URL_PATH, uploadDir } from './config/env.js';
+import { initObservability } from './lib/observability.js';
 import { FONTS_DIR, FONTS_URL_PATH } from './lib/render-assets.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
+import { apiLimiter } from './middleware/rate-limit.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { activityRouter } from './routes/activity.js';
 import { adminAuditLogRouter } from './routes/admin/audit-log.js';
@@ -27,12 +30,48 @@ import { profileRouter } from './routes/profile.js';
 import { stripeWebhookHandler } from './routes/stripe-webhook.js';
 import { templatesRouter } from './routes/templates.js';
 
+// Error monitoring (X.5.5) — first, so a crash during setup is still reported.
+// No-op unless SENTRY_DSN is set.
+initObservability();
+
 const app = express();
+
+// One proxy hop in front of the API on the VPS (nginx/Caddy terminating TLS, D1),
+// so `req.ip` and `req.protocol` come from `X-Forwarded-*` rather than being the
+// proxy's own loopback address — the rate limiters key off `req.ip`.
+app.set('trust proxy', 1);
+
+// Secure response headers (backlog X.4.6). The API serves JSON and static assets,
+// never an HTML document, so:
+//  - `contentSecurityPolicy` off here — CSP belongs on the web app's own HTML
+//    responses, not on a JSON API; a default CSP would also add nothing.
+//  - `crossOriginResourcePolicy` off here — the `/fonts` route sets its own
+//    `cross-origin` CORP so the sandboxed live-preview iframe (Origin: null) and
+//    the PDF pipeline can load them; a global `same-origin` would break that.
+//  - `crossOriginEmbedderPolicy` off — not an isolated context, and it would
+//    likewise block the cross-origin font fetch.
+// Everything else helmet sets by default stays: nosniff, frameguard DENY, HSTS,
+// Referrer-Policy no-referrer, X-DNS-Prefetch-Control, hidePoweredBy, etc.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: false,
+    crossOriginEmbedderPolicy: false,
+    // HSTS only means anything once TLS is terminated in front of us (post-deploy).
+    hsts: isProduction,
+  }),
+);
 
 // `credentials: true` — the refresh-token cookie is only sent/accepted on
 // credentialed requests, and the web app fetches with `credentials: 'include'`.
 app.use(cors({ origin: env.WEB_ORIGIN, credentials: true }));
 app.use(requestLogger);
+
+// Blanket per-IP rate limit on every route (backlog X.4.6). Loose enough not to
+// bite a real session; the auth endpoints and the expensive ones carry their own
+// tighter caps on top. Mounted before the body parser so a flood is turned away
+// before it is buffered.
+app.use(apiLimiter);
 
 // Stripe webhook (backlog 6.2.3) — MUST be before `express.json()`: signature
 // verification needs the raw request bytes. No auth (the signature is the auth).

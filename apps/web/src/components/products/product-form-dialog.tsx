@@ -1,16 +1,8 @@
 import type { ProductResponse } from '@invoice-saas/shared';
+import { useTranslation } from 'react-i18next';
 
 import { Modal, ModalContent, ModalDescription, ModalHeader, ModalTitle } from '../ui';
 import { ProductForm } from './product-form';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  createTitle: 'Add a product',
-  createDescription: 'Save a product or service once and reuse it as an invoice line.',
-  editTitle: 'Edit product',
-  editDescription:
-    'Changes apply to new invoice lines — lines already added to an invoice keep their values.',
-} as const;
 
 export interface ProductFormDialogProps {
   open: boolean;
@@ -33,15 +25,18 @@ export function ProductFormDialog({
   product,
   onSaved,
 }: ProductFormDialogProps) {
+  const { t } = useTranslation();
   const isEdit = product !== undefined;
 
   return (
     <Modal open={open} onOpenChange={onOpenChange}>
       <ModalContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <ModalHeader>
-          <ModalTitle>{isEdit ? COPY.editTitle : COPY.createTitle}</ModalTitle>
+          <ModalTitle>
+            {isEdit ? t('products.dialogEditTitle') : t('products.dialogCreateTitle')}
+          </ModalTitle>
           <ModalDescription>
-            {isEdit ? COPY.editDescription : COPY.createDescription}
+            {isEdit ? t('products.dialogEditDescription') : t('products.dialogCreateDescription')}
           </ModalDescription>
         </ModalHeader>
         <ProductForm

@@ -13,6 +13,7 @@ import {
   type TemplateResponse,
 } from '@invoice-saas/shared';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { fetchClient } from '../../features/clients/clients-api';
 import { useInvoiceDraft } from '../../features/invoices/use-invoice-draft';
@@ -25,23 +26,6 @@ import { AiDraftPanel } from './ai-draft-panel';
 import { InvoiceFormFields } from './invoice-form-fields';
 import { type HeaderState, initialHeader, SCRATCH } from './invoice-form-state';
 import { type LineRow, rowsFromAiDraft, rowsToLineItems } from './line-items';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  save: 'Save invoice',
-  cancel: 'Cancel',
-  saving: 'Saving…',
-  saved: 'Draft saved',
-  saveError: "Draft didn't save — we'll retry",
-  fixErrors: 'Check the highlighted fields before saving.',
-  issuedToast: (n: string) => `Invoice ${n} saved.`,
-  finalizeFailed: "Couldn't save this invoice. Try again.",
-  discardTitle: 'Discard this invoice?',
-  discardBody: 'It hasn’t been saved. Your draft will be kept but not issued.',
-  discardConfirm: 'Discard',
-  clientRequired: 'Pick a client for this invoice.',
-  templateRequired: 'Pick a template or design one.',
-} as const;
 
 export interface InvoiceFormProps {
   profile: BusinessProfileResponse;
@@ -66,6 +50,7 @@ export function InvoiceForm({
   onIssued,
   onCancel,
 }: InvoiceFormProps) {
+  const { t } = useTranslation();
   const toast = useToast();
 
   const [header, setHeader] = useState<HeaderState>(() => initialHeader(profile));
@@ -74,7 +59,8 @@ export function InvoiceForm({
   /** Field keys an AI draft filled but the user hasn't touched yet (7.2.3). */
   const [aiFilled, setAiFilled] = useState<ReadonlySet<string>>(() => new Set());
 
-  const defaultTemplateId = templates.find((t) => t.isDefault)?.id ?? templates[0]?.id ?? SCRATCH;
+  const defaultTemplateId =
+    templates.find((tpl) => tpl.isDefault)?.id ?? templates[0]?.id ?? SCRATCH;
   const [templateChoice, setTemplateChoice] = useState<string>(defaultTemplateId);
   const [inlineName, setInlineName] = useState('');
   const [inlineConfig, setInlineConfig] = useState<TemplateConfig>(() => defaultTemplateConfig());
@@ -190,7 +176,7 @@ export function InvoiceForm({
           setHeader((prev) => ({ ...prev, clientId: client.id }));
         })
         .catch(() => {
-          toast.error('The matched client couldn’t be loaded — pick it manually.');
+          toast.error(t('invoices.aiMatchLoadFailed'));
           setAiFilled((prev) => {
             const next = new Set(prev);
             next.delete('client');
@@ -210,8 +196,8 @@ export function InvoiceForm({
   const handleSave = async () => {
     setFormError(null);
     const errors: Record<string, string> = {};
-    if (!payload.clientId) errors.clientId = COPY.clientRequired;
-    if (isScratch && !inlineConfig) errors.template = COPY.templateRequired;
+    if (!payload.clientId) errors.clientId = t('invoices.clientRequired');
+    if (isScratch && !inlineConfig) errors.template = t('invoices.templateRequired');
 
     const parsed = invoiceInputSchema.safeParse(payload);
     if (!parsed.success) {
@@ -219,18 +205,19 @@ export function InvoiceForm({
         const path = issue.path.join('.');
         if (path && !path.startsWith('lineItems')) errors[path] = issue.message;
       }
-      if (parsed.error.issues.some((i) => i.path[0] === 'lineItems')) setFormError(COPY.fixErrors);
+      if (parsed.error.issues.some((i) => i.path[0] === 'lineItems'))
+        setFormError(t('invoices.fixErrors'));
     }
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
-      if (!formError) setFormError(COPY.fixErrors);
+      if (!formError) setFormError(t('invoices.fixErrors'));
       return;
     }
 
     try {
       const issued = await draft.finalize(payload);
-      toast.success(COPY.issuedToast(issued.number ?? ''));
+      toast.success(t('invoices.issuedToast', { number: issued.number ?? '' }));
       onIssued(issued);
     } catch (err) {
       if (err instanceof HttpError && err.fields) {
@@ -239,20 +226,20 @@ export function InvoiceForm({
           if (msgs[0]) mapped[k] = msgs[0];
         }
         setFieldErrors(mapped);
-        setFormError(COPY.fixErrors);
+        setFormError(t('invoices.fixErrors'));
       } else {
-        setFormError(toUserMessage(err) || COPY.finalizeFailed);
+        setFormError(toUserMessage(err) || t('invoices.finalizeFailed'));
       }
     }
   };
 
   const saveStatus =
     draft.saveState === 'saving'
-      ? COPY.saving
+      ? t('invoices.saving')
       : draft.saveState === 'error'
-        ? COPY.saveError
+        ? t('invoices.draftSaveError')
         : draft.saveState === 'saved'
-          ? COPY.saved
+          ? t('invoices.draftSaved')
           : '';
 
   return (
@@ -269,10 +256,10 @@ export function InvoiceForm({
         </span>
         <div className="flex gap-2">
           <Button type="button" variant="outline" onClick={handleCancel}>
-            {COPY.cancel}
+            {t('common.cancel')}
           </Button>
           <Button type="button" onClick={() => void handleSave()} isLoading={draft.isFinalizing}>
-            {COPY.save}
+            {t('invoices.saveInvoice')}
           </Button>
         </div>
       </div>
@@ -305,9 +292,9 @@ export function InvoiceForm({
       <ConfirmDialog
         open={confirmCancel}
         onOpenChange={setConfirmCancel}
-        title={COPY.discardTitle}
-        description={COPY.discardBody}
-        confirmLabel={COPY.discardConfirm}
+        title={t('invoices.createDiscardTitle')}
+        description={t('invoices.createDiscardBody')}
+        confirmLabel={t('invoices.discardConfirm')}
         destructive
         onConfirm={onCancel}
       />

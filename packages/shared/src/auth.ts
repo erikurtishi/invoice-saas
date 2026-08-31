@@ -74,7 +74,11 @@ export const authUserSchema = z.object({
   businessName: z.string(),
   role: z.enum(['OWNER', 'ADMIN']),
   emailVerified: z.boolean(),
-  preferredLanguage: z.enum(['EN', 'SQ', 'MK']),
+  /** App-UI language (X.1.4) — the web app calls `i18n.changeLanguage` with this on
+   * session load so the server value wins over any local guess. */
+  uiLanguage: z.enum(['EN', 'SQ', 'MK']),
+  /** Default language for printed invoices (spec §10). Not the app UI. */
+  invoiceLanguage: z.enum(['EN', 'SQ', 'MK']),
   /** Billing tier (backlog 1.2.1). `FREE` until Phase 6's billing flow changes it. */
   tier: z.enum(['FREE', 'BASIC', 'PREMIUM']),
   /** False until the user finishes or skips the onboarding wizard (1.2.4). The web

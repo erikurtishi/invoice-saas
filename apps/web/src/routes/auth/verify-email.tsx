@@ -1,5 +1,6 @@
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { AuthCard } from '../../components/auth/auth-card';
@@ -11,22 +12,8 @@ import {
 } from '../../features/auth/use-auth';
 import { useToast } from '../../hooks/use-toast';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  verifying: 'Confirming your email…',
-  successTitle: 'Email confirmed',
-  successBody: 'Your email address is verified. You can use every feature now.',
-  continue: 'Continue',
-  failTitle: "We couldn't confirm this link",
-  failBody: 'The link may have expired or already been used. Request a fresh one and try again.',
-  missingTitle: 'This link is invalid',
-  missingBody: 'The confirmation link is missing its token.',
-  resend: 'Send a new link',
-  resent: 'Sent — check your inbox for the new link.',
-  toLogin: 'Go to log in',
-} as const;
-
 export function VerifyEmailPage() {
+  const { t } = useTranslation();
   const [params] = useSearchParams();
   const token = params.get('token');
   const navigate = useNavigate();
@@ -47,16 +34,20 @@ export function VerifyEmailPage() {
 
   if (!token) {
     return (
-      <AuthCard title={COPY.missingTitle}>
-        <p className="text-sm text-muted-foreground">{COPY.missingBody}</p>
+      <AuthCard title={t('auth.verifyMissingTitle')}>
+        <p className="text-sm text-muted-foreground">{t('auth.verifyMissingBody')}</p>
       </AuthCard>
     );
   }
 
   if (verify.isPending || verify.isIdle) {
     return (
-      <AuthCard title={COPY.verifying}>
-        <div className="flex justify-center py-4" role="status" aria-label={COPY.verifying}>
+      <AuthCard title={t('auth.verifyingTitle')}>
+        <div
+          className="flex justify-center py-4"
+          role="status"
+          aria-label={t('auth.verifyingTitle')}
+        >
           <Loader2 className="size-7 animate-spin text-muted-foreground" aria-hidden />
         </div>
       </AuthCard>
@@ -65,12 +56,12 @@ export function VerifyEmailPage() {
 
   if (verify.isSuccess) {
     return (
-      <AuthCard title={COPY.successTitle}>
+      <AuthCard title={t('auth.verifySuccessTitle')}>
         <div className="flex flex-col items-center gap-4 text-center">
           <CheckCircle2 className="size-9 text-primary" aria-hidden />
-          <p className="text-sm text-muted-foreground">{COPY.successBody}</p>
-          <Button className="w-full" onClick={() => void navigate('/', { replace: true })}>
-            {COPY.continue}
+          <p className="text-sm text-muted-foreground">{t('auth.verifySuccessBody')}</p>
+          <Button className="w-full" onClick={() => void navigate('/console', { replace: true })}>
+            {t('auth.verifyContinue')}
           </Button>
         </div>
       </AuthCard>
@@ -79,10 +70,10 @@ export function VerifyEmailPage() {
 
   // Error.
   return (
-    <AuthCard title={COPY.failTitle}>
+    <AuthCard title={t('auth.verifyFailTitle')}>
       <div className="flex flex-col items-center gap-4 text-center">
         <XCircle className="size-9 text-destructive" aria-hidden />
-        <p className="text-sm text-muted-foreground">{COPY.failBody}</p>
+        <p className="text-sm text-muted-foreground">{t('auth.verifyFailBody')}</p>
         {session.data ? (
           <Button
             className="w-full"
@@ -90,15 +81,15 @@ export function VerifyEmailPage() {
             isLoading={resend.isPending}
             onClick={() => {
               resend.mutate(undefined, {
-                onSuccess: () => toast.success(COPY.resent),
+                onSuccess: () => toast.success(t('auth.verifyResent')),
               });
             }}
           >
-            {COPY.resend}
+            {t('auth.verifyResend')}
           </Button>
         ) : (
           <Button asChild variant="outline" className="w-full">
-            <Link to="/login">{COPY.toLogin}</Link>
+            <Link to="/login">{t('auth.verifyToLogin')}</Link>
           </Button>
         )}
       </div>

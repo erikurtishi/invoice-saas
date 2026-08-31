@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 
 import { isProduction } from '../config/env.js';
 import { ApiError } from '../lib/api-error.js';
+import { captureError } from '../lib/observability.js';
 
 /** Mounted after every route. Anything that reaches here matched no route. */
 export const notFoundHandler: RequestHandler = (req, res) => {
@@ -36,7 +37,7 @@ function isBodyParserSyntaxError(err: unknown): err is SyntaxError {
  * response. Every route just `throw`s or `next(error)`s; nothing formats a response
  * by hand. Must be mounted last, after every route and after `notFoundHandler`.
  */
-export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof ApiError) {
     res.status(err.status).json({
       error: { code: err.code, message: err.message, ...(err.fields && { fields: err.fields }) },
@@ -63,8 +64,11 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   }
 
   // Unhandled — backlog rule: never a raw error code or stack trace reaches the
-  // client. Log the real error server-side; production gets a generic message.
+  // client. Log the real error server-side, report it to Sentry if configured
+  // (X.5.5 — only the genuine 5xx incidents get here, the 4xx `ApiError`s
+  // returned above are normal traffic), and give production a generic message.
   console.error(err);
+  captureError(err, { method: req.method, path: req.path, status: 500 });
   res.status(500).json({
     error: {
       code: 'INTERNAL_ERROR',

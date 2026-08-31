@@ -1,5 +1,6 @@
 import { ArrowLeft, PartyPopper, Users } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate } from 'react-router-dom';
 
 import { BusinessProfileForm } from '../../components/profile/business-profile-form';
@@ -18,27 +19,6 @@ import { useBusinessProfile, useCompleteOnboarding } from '../../features/profil
 import { toUserMessage } from '../../lib/error-message';
 import { useToast } from '../../hooks/use-toast';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  brand: 'Invoice SaaS',
-  step: (n: number, total: number) => `Step ${n} of ${total}`,
-  profileTitle: 'Set up your business',
-  profileDescription:
-    'This appears on every invoice you create. You can change any of it later in Settings.',
-  continue: 'Continue',
-  clientTitle: 'Add your first client',
-  clientDescription:
-    'Saved clients make invoicing fast — pick one instead of retyping their details every time.',
-  clientComingSoon: 'Client management arrives in the next update. You can skip this for now.',
-  back: 'Back',
-  skip: 'Skip for now',
-  doneTitle: "You're all set",
-  doneDescription: 'Your business profile is saved. Time to make your first invoice.',
-  createInvoice: 'Create your first invoice',
-  goToDashboard: 'Go to the dashboard',
-  finishFailed: "Couldn't finish setup. Try again.",
-} as const;
-
 type Step = 'profile' | 'client' | 'done';
 const STEP_ORDER: Step[] = ['profile', 'client', 'done'];
 
@@ -52,6 +32,7 @@ const STEP_ORDER: Step[] = ['profile', 'client', 'done'];
  * and never blocks finishing.
  */
 export function OnboardingPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: user, isPending: sessionPending } = useSession();
   const profileQuery = useBusinessProfile();
@@ -61,7 +42,7 @@ export function OnboardingPage() {
 
   if (sessionPending) return null;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.onboardingCompleted) return <Navigate to="/" replace />;
+  if (user.onboardingCompleted) return <Navigate to="/console" replace />;
 
   const stepNumber = STEP_ORDER.indexOf(step) + 1;
 
@@ -70,7 +51,7 @@ export function OnboardingPage() {
       await complete.mutateAsync();
       void navigate(destination, { replace: true });
     } catch (err) {
-      toast.error(toUserMessage(err) || COPY.finishFailed);
+      toast.error(toUserMessage(err) || t('onboarding.finishFailed'));
     }
   }
 
@@ -78,18 +59,18 @@ export function OnboardingPage() {
     <div className="flex min-h-svh flex-col items-center bg-muted/30 px-4 py-10 sm:py-16">
       <div className="w-full max-w-2xl">
         <div className="mb-6 flex items-center justify-between">
-          {/* TODO(X.1.1): real brand mark pending brand decisions. */}
-          <span className="text-base font-semibold">{COPY.brand}</span>
+          {/* Real brand mark pending brand decisions. */}
+          <span className="text-base font-semibold">{t('app.name')}</span>
           <span className="text-xs font-medium text-muted-foreground">
-            {COPY.step(stepNumber, STEP_ORDER.length)}
+            {t('onboarding.step', { n: stepNumber, total: STEP_ORDER.length })}
           </span>
         </div>
 
         {step === 'profile' && (
           <Card>
             <CardHeader>
-              <CardTitle>{COPY.profileTitle}</CardTitle>
-              <CardDescription>{COPY.profileDescription}</CardDescription>
+              <CardTitle>{t('onboarding.profileTitle')}</CardTitle>
+              <CardDescription>{t('onboarding.profileDescription')}</CardDescription>
             </CardHeader>
             <CardContent>
               <QueryBoundary query={profileQuery} loading={<SkeletonForm fields={8} />}>
@@ -97,7 +78,7 @@ export function OnboardingPage() {
                   <BusinessProfileForm
                     profile={profile}
                     variant="onboarding"
-                    submitLabel={COPY.continue}
+                    submitLabel={t('onboarding.continue')}
                     onSaved={() => setStep('client')}
                   />
                 )}
@@ -109,22 +90,24 @@ export function OnboardingPage() {
         {step === 'client' && (
           <Card>
             <CardHeader>
-              <CardTitle>{COPY.clientTitle}</CardTitle>
-              <CardDescription>{COPY.clientDescription}</CardDescription>
+              <CardTitle>{t('onboarding.clientTitle')}</CardTitle>
+              <CardDescription>{t('onboarding.clientDescription')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-6">
               <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-6 py-12 text-center">
                 <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
                   <Users className="size-6" aria-hidden />
                 </div>
-                <p className="max-w-sm text-sm text-muted-foreground">{COPY.clientComingSoon}</p>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {t('onboarding.clientComingSoon')}
+                </p>
               </div>
               <div className="flex items-center justify-between">
                 <Button variant="ghost" onClick={() => setStep('profile')}>
                   <ArrowLeft className="size-4" aria-hidden />
-                  {COPY.back}
+                  {t('common.back')}
                 </Button>
-                <Button onClick={() => setStep('done')}>{COPY.skip}</Button>
+                <Button onClick={() => setStep('done')}>{t('onboarding.skip')}</Button>
               </div>
             </CardContent>
           </Card>
@@ -133,8 +116,8 @@ export function OnboardingPage() {
         {step === 'done' && (
           <Card>
             <CardHeader>
-              <CardTitle>{COPY.doneTitle}</CardTitle>
-              <CardDescription>{COPY.doneDescription}</CardDescription>
+              <CardTitle>{t('onboarding.doneTitle')}</CardTitle>
+              <CardDescription>{t('onboarding.doneDescription')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-6">
               <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card px-6 py-12 text-center">
@@ -145,18 +128,18 @@ export function OnboardingPage() {
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <Button
                   variant="outline"
-                  onClick={() => void finish('/')}
+                  onClick={() => void finish('/console')}
                   isLoading={complete.isPending}
                   disabled={complete.isPending}
                 >
-                  {COPY.goToDashboard}
+                  {t('onboarding.goToDashboard')}
                 </Button>
                 <Button
-                  onClick={() => void finish('/invoices')}
+                  onClick={() => void finish('/console/invoices')}
                   isLoading={complete.isPending}
                   disabled={complete.isPending}
                 >
-                  {COPY.createInvoice}
+                  {t('onboarding.createInvoice')}
                 </Button>
               </div>
             </CardContent>

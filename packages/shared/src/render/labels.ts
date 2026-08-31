@@ -25,6 +25,10 @@ export interface RenderLabels {
   billedTo: string;
   from: string;
   description: string;
+  /** Placeholder shown in the line-item table while a draft has no rows yet
+   * (X.7.7) — only reachable in the live preview; a saved invoice always has
+   * at least one line. */
+  lineItemsEmpty: string;
   quantity: string;
   unitPrice: string;
   taxRate: string;
@@ -67,6 +71,7 @@ const EN: RenderLabels = {
   billedTo: 'Billed to',
   from: 'From',
   description: 'Description',
+  lineItemsEmpty: 'Add a line item to see it here',
   quantity: 'Qty',
   unitPrice: 'Unit price',
   taxRate: 'Tax',
@@ -109,6 +114,7 @@ const SQ: RenderLabels = {
   billedTo: 'Faturuar për',
   from: 'Nga',
   description: 'Përshkrimi',
+  lineItemsEmpty: 'Shtoni një artikull për ta parë këtu',
   quantity: 'Sasia',
   unitPrice: 'Çmimi për njësi',
   taxRate: 'TVSH',
@@ -151,6 +157,7 @@ const MK: RenderLabels = {
   billedTo: 'Фактурирано на',
   from: 'Од',
   description: 'Опис',
+  lineItemsEmpty: 'Додајте ставка за да се прикаже тука',
   quantity: 'Кол.',
   unitPrice: 'Единечна цена',
   taxRate: 'ДДВ',

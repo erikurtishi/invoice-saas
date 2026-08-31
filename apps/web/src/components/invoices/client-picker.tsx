@@ -1,6 +1,7 @@
 import type { ClientResponse } from '@invoice-saas/shared';
 import { Building2, Check, Loader2, Plus, Search, X } from 'lucide-react';
 import { useId, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useClients } from '../../features/clients/use-clients';
 import { useDebouncedValue } from '../../hooks/use-debounced-value';
@@ -8,19 +9,6 @@ import { cn } from '../../lib/cn';
 import { toUserMessage } from '../../lib/error-message';
 import { ClientFormDialog } from '../clients/client-form-dialog';
 import { Button, Input } from '../ui';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  placeholder: 'Search clients by name…',
-  label: 'Search clients',
-  loading: 'Searching…',
-  nothingFound: 'No clients match',
-  error: "Couldn't search clients.",
-  addNew: 'Add a new client',
-  change: 'Change',
-  clear: 'Clear selection',
-  selected: 'Selected client',
-} as const;
 
 const PAGE_SIZE = 8;
 
@@ -50,6 +38,7 @@ export function ClientPicker({
   id,
   'aria-describedby': describedBy,
 }: ClientPickerProps) {
+  const { t } = useTranslation();
   const [input, setInput] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -78,7 +67,7 @@ export function ClientPicker({
           'flex items-center gap-3 rounded-md border px-3 py-2',
           invalid ? 'border-destructive' : 'border-input',
         )}
-        aria-label={COPY.selected}
+        aria-label={t('invoices.clientSelected')}
       >
         <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <div className="min-w-0 flex-1">
@@ -89,7 +78,7 @@ export function ClientPicker({
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)}>
           <X className="size-4" aria-hidden />
-          {COPY.clear}
+          {t('invoices.clientClear')}
         </Button>
       </div>
     );
@@ -111,10 +100,10 @@ export function ClientPicker({
             aria-expanded={showList}
             aria-controls={listboxId}
             aria-autocomplete="list"
-            aria-label={COPY.label}
+            aria-label={t('invoices.clientSearchLabel')}
             aria-describedby={describedBy}
             invalid={invalid ?? false}
-            placeholder={COPY.placeholder}
+            placeholder={t('invoices.clientSearchPlaceholder')}
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
@@ -146,7 +135,7 @@ export function ClientPicker({
         </div>
         <Button type="button" variant="outline" onClick={() => setDialogOpen(true)}>
           <Plus className="size-4" aria-hidden />
-          {COPY.addNew}
+          {t('invoices.clientAddNew')}
         </Button>
       </div>
 
@@ -163,23 +152,23 @@ export function ClientPicker({
           {query.isPending && query.isFetching && (
             <li className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" aria-hidden />
-              {COPY.loading}
+              {t('invoices.clientSearching')}
             </li>
           )}
           {query.isError && (
             <li className="px-2 py-3 text-sm text-destructive" role="alert">
-              {toUserMessage(query.error) || COPY.error}
+              {toUserMessage(query.error) || t('invoices.clientSearchError')}
             </li>
           )}
           {!query.isPending && !query.isError && results.length === 0 && (
             <li className="flex items-center justify-between gap-3 px-2 py-3 text-sm text-muted-foreground">
-              <span>{COPY.nothingFound}</span>
+              <span>{t('invoices.clientNothingFound')}</span>
               <button
                 type="button"
                 className="rounded font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => setDialogOpen(true)}
               >
-                {COPY.addNew}
+                {t('invoices.clientAddNew')}
               </button>
             </li>
           )}

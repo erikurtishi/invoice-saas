@@ -11,6 +11,7 @@ import {
   type TemplateResponse,
 } from '@invoice-saas/shared';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { AiFilledBadge } from '../form/ai-filled-badge';
 import { FormField } from '../form/field';
@@ -27,37 +28,10 @@ import {
 } from '../ui';
 import { ClientPicker } from './client-picker';
 import { InvoicePreviewPanel } from './invoice-preview-panel';
-import { DOC_TYPE_LABELS, type HeaderState, PAPER_SIZES, SCRATCH } from './invoice-form-state';
+import { type HeaderState, PAPER_SIZES, SCRATCH } from './invoice-form-state';
 import { LineItemsEditor } from './line-items-editor';
 import { type LineRow } from './line-items';
 import { TotalsPanel } from './totals-panel';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  docType: 'Document type',
-  docTypeLocked: 'Locked — set when the invoice was issued.',
-  client: 'Client',
-  template: 'Template',
-  scratch: 'Start from scratch…',
-  editDesign: 'Edit design',
-  templateName: 'New template name',
-  templateNamePlaceholder: 'e.g. Studio invoice',
-  inlineEditorTitle: 'Design a template for this invoice',
-  done: 'Done',
-  issueDate: 'Issue date',
-  dueDate: 'Due date',
-  validUntil: 'Valid until',
-  currency: 'Currency',
-  paperSize: 'Paper size',
-  reference: 'Reference / PO number',
-  creditNoteRef: 'Credit note for invoice',
-  paidDate: 'Paid on',
-  paymentMethod: 'Payment method',
-  notes: 'Notes',
-  footer: 'Footer text',
-  signature: 'Signature label',
-  currentTemplate: 'Current template',
-} as const;
 
 export interface InvoiceFormFieldsProps {
   profile: BusinessProfileResponse;
@@ -127,6 +101,7 @@ export function InvoiceFormFields({
   syncing,
   previewNumber,
 }: InvoiceFormFieldsProps) {
+  const { t } = useTranslation();
   const [designerOpen, setDesignerOpen] = useState(false);
 
   const fields = DOCUMENT_TYPE_FIELDS[header.documentType];
@@ -135,41 +110,45 @@ export function InvoiceFormFields({
 
   // Include the invoice's own template as an option even if it's been deleted
   // from the library (X.7.22 — a historical invoice keeps its design).
-  const inList = templates.some((t) => t.id === templateChoice);
+  const inList = templates.some((tpl) => tpl.id === templateChoice);
   const templateOptions = [
-    ...templates.map((t) => ({
-      value: t.id,
-      label: t.isDefault ? `${t.name} (default)` : t.name,
+    ...templates.map((tpl) => ({
+      value: tpl.id,
+      label: tpl.isDefault ? t('invoices.templateDefaultSuffix', { name: tpl.name }) : tpl.name,
     })),
-    ...(!inList && !isScratch ? [{ value: templateChoice, label: COPY.currentTemplate }] : []),
-    { value: SCRATCH, label: COPY.scratch },
+    ...(!inList && !isScratch
+      ? [{ value: templateChoice, label: t('invoices.currentTemplate') }]
+      : []),
+    { value: SCRATCH, label: t('invoices.templateScratch') },
   ];
 
   const templateConfig: TemplateConfig | null = isScratch
     ? inlineConfig
-    : (templates.find((t) => t.id === templateChoice)?.config ?? fallbackTemplateConfig ?? null);
+    : (templates.find((tpl) => tpl.id === templateChoice)?.config ??
+      fallbackTemplateConfig ??
+      null);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="flex flex-col gap-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField
-            label={COPY.docType}
+            label={t('invoices.fieldDocType')}
             required
-            hint={lockDocumentType ? COPY.docTypeLocked : undefined}
+            hint={lockDocumentType ? t('invoices.fieldDocTypeLocked') : undefined}
           >
             {({ controlProps }) => (
               <Select
                 {...controlProps}
                 disabled={lockDocumentType}
-                options={DOCUMENT_TYPES.map((t) => ({ value: t, label: DOC_TYPE_LABELS[t] }))}
+                options={DOCUMENT_TYPES.map((dt) => ({ value: dt, label: t(`docTypes.${dt}`) }))}
                 value={header.documentType}
                 onValueChange={(v) => setField('documentType', v as DocumentType)}
               />
             )}
           </FormField>
 
-          <FormField label={COPY.currency} required badge={aiBadge('currency')}>
+          <FormField label={t('invoices.fieldCurrency')} required badge={aiBadge('currency')}>
             {({ controlProps }) => (
               <Select
                 {...controlProps}
@@ -182,7 +161,7 @@ export function InvoiceFormFields({
         </div>
 
         <FormField
-          label={COPY.client}
+          label={t('invoices.fieldClient')}
           required
           error={fieldErrors.clientId}
           badge={aiBadge('client')}
@@ -203,7 +182,7 @@ export function InvoiceFormFields({
         </FormField>
 
         <FormField
-          label={COPY.template}
+          label={t('invoices.fieldTemplate')}
           required
           error={fieldErrors.template ?? fieldErrors.templateId}
         >
@@ -218,8 +197,8 @@ export function InvoiceFormFields({
               {isScratch && (
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
-                    aria-label={COPY.templateName}
-                    placeholder={COPY.templateNamePlaceholder}
+                    aria-label={t('invoices.templateNameLabel')}
+                    placeholder={t('invoices.templateNamePlaceholder')}
                     className="max-w-xs"
                     value={inlineName}
                     onChange={(e) => onInlineNameChange(e.target.value)}
@@ -230,7 +209,7 @@ export function InvoiceFormFields({
                     size="sm"
                     onClick={() => setDesignerOpen(true)}
                   >
-                    {COPY.editDesign}
+                    {t('invoices.editDesign')}
                   </Button>
                 </div>
               )}
@@ -240,7 +219,7 @@ export function InvoiceFormFields({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField
-            label={COPY.issueDate}
+            label={t('invoices.fieldIssueDate')}
             required
             error={fieldErrors.issueDate}
             badge={aiBadge('issueDate')}
@@ -258,7 +237,11 @@ export function InvoiceFormFields({
 
           {fields.secondaryDate !== 'none' && (
             <FormField
-              label={fields.secondaryDate === 'validUntil' ? COPY.validUntil : COPY.dueDate}
+              label={
+                fields.secondaryDate === 'validUntil'
+                  ? t('invoices.fieldValidUntil')
+                  : t('invoices.fieldDueDate')
+              }
               error={fieldErrors.dueDate}
               badge={aiBadge('dueDate')}
             >
@@ -275,7 +258,7 @@ export function InvoiceFormFields({
           )}
 
           {fields.showPaidDate && (
-            <FormField label={COPY.paidDate} error={fieldErrors.paidDate}>
+            <FormField label={t('invoices.fieldPaidDate')} error={fieldErrors.paidDate}>
               {({ controlProps }) => (
                 <Input
                   {...controlProps}
@@ -288,7 +271,7 @@ export function InvoiceFormFields({
           )}
 
           {fields.showPaymentMethod && (
-            <FormField label={COPY.paymentMethod}>
+            <FormField label={t('invoices.fieldPaymentMethod')}>
               {({ controlProps }) => (
                 <Input
                   {...controlProps}
@@ -299,18 +282,26 @@ export function InvoiceFormFields({
             </FormField>
           )}
 
-          <FormField label={COPY.paperSize} required>
+          <FormField label={t('invoices.fieldPaperSize')} required>
             {({ controlProps }) => (
               <Select
                 {...controlProps}
-                options={PAPER_SIZES.map((p) => ({ value: p, label: p }))}
+                options={PAPER_SIZES.map((p) => ({
+                  value: p,
+                  label:
+                    p === 'LETTER'
+                      ? t('profile.paperLetter')
+                      : p === 'LEGAL'
+                        ? t('profile.paperLegal')
+                        : p,
+                }))}
                 value={header.paperSize}
                 onValueChange={(v) => setField('paperSize', v as (typeof PAPER_SIZES)[number])}
               />
             )}
           </FormField>
 
-          <FormField label={COPY.reference} badge={aiBadge('reference')}>
+          <FormField label={t('invoices.fieldReference')} badge={aiBadge('reference')}>
             {({ controlProps }) => (
               <Input
                 {...controlProps}
@@ -321,7 +312,11 @@ export function InvoiceFormFields({
           </FormField>
 
           {fields.showCreditNoteRef && (
-            <FormField label={COPY.creditNoteRef} required error={fieldErrors.creditNoteRef}>
+            <FormField
+              label={t('invoices.fieldCreditNoteRef')}
+              required
+              error={fieldErrors.creditNoteRef}
+            >
               {({ controlProps, invalid }) => (
                 <Input
                   {...controlProps}
@@ -344,7 +339,7 @@ export function InvoiceFormFields({
         </div>
 
         <div className="grid gap-4">
-          <FormField label={COPY.notes} badge={aiBadge('notes')}>
+          <FormField label={t('invoices.fieldNotes')} badge={aiBadge('notes')}>
             {({ controlProps }) => (
               <Textarea
                 {...controlProps}
@@ -355,7 +350,7 @@ export function InvoiceFormFields({
             )}
           </FormField>
           <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label={COPY.footer}>
+            <FormField label={t('invoices.fieldFooter')}>
               {({ controlProps }) => (
                 <Input
                   {...controlProps}
@@ -364,7 +359,7 @@ export function InvoiceFormFields({
                 />
               )}
             </FormField>
-            <FormField label={COPY.signature}>
+            <FormField label={t('invoices.fieldSignature')}>
               {({ controlProps }) => (
                 <Input
                   {...controlProps}
@@ -397,14 +392,14 @@ export function InvoiceFormFields({
       <Modal open={designerOpen} onOpenChange={setDesignerOpen}>
         <ModalContent className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden p-0">
           <ModalHeader className="border-b border-border px-4 py-3">
-            <ModalTitle>{COPY.inlineEditorTitle}</ModalTitle>
+            <ModalTitle>{t('invoices.inlineEditorTitle')}</ModalTitle>
           </ModalHeader>
           <div className="min-h-0 flex-1">
             <TemplateEditor config={inlineConfig} onChange={onInlineConfigChange} />
           </div>
           <div className="flex justify-end border-t border-border px-4 py-3">
             <Button type="button" onClick={() => setDesignerOpen(false)}>
-              {COPY.done}
+              {t('invoices.done')}
             </Button>
           </div>
         </ModalContent>

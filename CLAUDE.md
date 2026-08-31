@@ -22,5 +22,8 @@ npm workspaces. Run installs from the repo root, not inside individual app folde
 - Every screen implements all 5 UI states (loading/empty/success/error/partial) — see backlog Epic 0.4b and X.7
 - Money is always integer minor units, never floats
 - Multi-tenant: every DB query scoped by tenant_id via middleware, never per-route
-- i18n: no hardcoded UI strings — English/Albanian/Macedonian
+- i18n: no hardcoded UI strings — English/Albanian/Macedonian. App copy goes through
+  `apps/web/src/i18n` (`en` is the source of truth; `useFormatters()` for locale
+  formatting); invoice-document labels are separate, in `packages/shared/src/render/labels.ts`.
+  `npm run i18n:check` gates key + interpolation parity across locales.
 - One shared render function powers both the live template preview and the server PDF — never two renderers

@@ -2,6 +2,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Menu, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
 
 import { cn } from '../../lib/cn';
@@ -20,19 +21,19 @@ const OVERLAY_TRANSITION = { duration: 0.15 };
  */
 export function MobileNav() {
   const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
       <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4 lg:hidden">
-        {/* TODO(X.1.1): hardcoded placeholder copy, see decision D9. */}
-        <span className="text-sm font-semibold">Invoice SaaS</span>
+        <span className="text-sm font-semibold">{t('app.name')}</span>
         <DialogPrimitive.Trigger
           className={cn(
             'flex size-9 items-center justify-center rounded-md text-muted-foreground',
             'hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2',
             'focus-visible:ring-ring',
           )}
-          aria-label="Open navigation"
+          aria-label={t('nav.open')}
         >
           <Menu className="size-5" aria-hidden="true" />
         </DialogPrimitive.Trigger>
@@ -63,7 +64,7 @@ export function MobileNav() {
               >
                 <div className="flex h-14 items-center justify-between border-b border-border px-4">
                   <DialogPrimitive.Title className="text-sm font-semibold">
-                    Menu
+                    {t('app.menu')}
                   </DialogPrimitive.Title>
                   <DialogPrimitive.Close
                     className={cn(
@@ -71,13 +72,13 @@ export function MobileNav() {
                       'hover:bg-muted hover:text-foreground focus-visible:outline-none',
                       'focus-visible:ring-2 focus-visible:ring-ring',
                     )}
-                    aria-label="Close navigation"
+                    aria-label={t('nav.close')}
                   >
                     <X className="size-5" aria-hidden="true" />
                   </DialogPrimitive.Close>
                 </div>
-                <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Primary">
-                  {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+                <nav className="flex flex-1 flex-col gap-1 p-3" aria-label={t('nav.primary')}>
+                  {NAV_ITEMS.map(({ to, labelKey, icon: Icon, end }) => (
                     <NavLink
                       key={to}
                       to={to}
@@ -93,7 +94,7 @@ export function MobileNav() {
                       }
                     >
                       <Icon className="size-4 shrink-0" />
-                      {label}
+                      {t(labelKey)}
                     </NavLink>
                   ))}
                 </nav>

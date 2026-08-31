@@ -1,4 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import { UpgradeCallout } from '../../components/billing/upgrade-callout';
@@ -10,19 +11,6 @@ import { useEntitlements } from '../../features/billing/use-billing';
 import { useBusinessProfile } from '../../features/profile/use-profile';
 import { useTemplates } from '../../features/templates/use-templates';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  back: 'Invoices',
-  title: 'New invoice',
-  subtitle: 'Fill in the details — the preview updates as you go, and drafts save automatically.',
-  limitReachedTitle: "You've used your free invoice",
-  limitReachedBody:
-    'The Free plan includes one invoice for the lifetime of the account. Upgrade to Basic or Premium for unlimited invoices — your existing invoice stays available to view, edit and send.',
-  lastOneTitle: 'This is your free invoice',
-  lastOneBody:
-    'The Free plan includes one invoice, for the lifetime of the account. You can still edit and send it after issuing.',
-} as const;
-
 /**
  * The invoice creation screen (backlog Epic 4.2). Loads the two things the form
  * needs up front — the business profile (defaults + the "from" block) and the
@@ -30,6 +18,7 @@ const COPY = {
  * the live preview and compose-time autosave.
  */
 export function InvoiceCreatePage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const profileQuery = useBusinessProfile();
   const templatesQuery = useTemplates();
@@ -50,28 +39,28 @@ export function InvoiceCreatePage() {
           variant="ghost"
           size="sm"
           className="-ml-2 self-start"
-          onClick={() => void navigate('/invoices')}
+          onClick={() => void navigate('/console/invoices')}
         >
           <ArrowLeft className="size-4" aria-hidden />
-          {COPY.back}
+          {t('invoices.detailBack')}
         </Button>
-        <h1 className="text-xl font-semibold text-foreground">{COPY.title}</h1>
-        <p className="text-sm text-muted-foreground">{COPY.subtitle}</p>
+        <h1 className="text-xl font-semibold text-foreground">{t('invoices.createTitle')}</h1>
+        <p className="text-sm text-muted-foreground">{t('invoices.createSubtitle')}</p>
       </header>
 
       {limitReached ? (
         <UpgradeCallout
           variant="card"
-          title={COPY.limitReachedTitle}
-          description={COPY.limitReachedBody}
+          title={t('invoices.limitReachedTitle')}
+          description={t('invoices.limitReachedBody')}
         />
       ) : (
         <>
           {onLastInvoice && (
             <UpgradeCallout
               className="mb-4"
-              title={COPY.lastOneTitle}
-              description={COPY.lastOneBody}
+              title={t('invoices.lastOneTitle')}
+              description={t('invoices.lastOneBody')}
             />
           )}
           <QueryBoundary
@@ -90,8 +79,8 @@ export function InvoiceCreatePage() {
                     profile={profile}
                     templates={templates.items}
                     entitlements={entitlementsQuery.data}
-                    onIssued={(invoice) => void navigate(`/invoices/${invoice.id}`)}
-                    onCancel={() => void navigate('/invoices')}
+                    onIssued={(invoice) => void navigate(`/console/invoices/${invoice.id}`)}
+                    onCancel={() => void navigate('/console/invoices')}
                   />
                 )}
               </QueryBoundary>

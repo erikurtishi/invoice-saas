@@ -1,5 +1,6 @@
 import { requestPasswordResetSchema, type RequestPasswordResetInput } from '@invoice-saas/shared';
 import { MailCheck } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
 import { AuthCard, AuthFormError } from '../../components/auth/auth-card';
@@ -9,19 +10,8 @@ import { useRequestPasswordReset } from '../../features/auth/use-auth';
 import { toUserMessage } from '../../lib/error-message';
 import { useZodForm } from '../../lib/use-zod-form';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  title: 'Reset your password',
-  subtitle: "Enter your email and we'll send a reset link.",
-  email: 'Email',
-  submit: 'Send reset link',
-  backToLogin: 'Back to log in',
-  sentTitle: 'Check your email',
-  sentBody:
-    'If an account exists for that address, a password reset link is on its way. The link expires in 1 hour.',
-} as const;
-
 export function ForgotPasswordPage() {
+  const { t } = useTranslation();
   const { mutateAsync, isPending, isSuccess, error } = useRequestPasswordReset();
   const form = useZodForm<RequestPasswordResetInput>(requestPasswordResetSchema);
 
@@ -34,16 +24,16 @@ export function ForgotPasswordPage() {
   if (isSuccess) {
     return (
       <AuthCard
-        title={COPY.sentTitle}
+        title={t('auth.forgotSentTitle')}
         footer={
           <Link to="/login" className="font-medium text-primary hover:underline">
-            {COPY.backToLogin}
+            {t('auth.backToLogin')}
           </Link>
         }
       >
         <div className="flex flex-col items-center gap-3 text-center">
           <MailCheck className="size-8 text-primary" aria-hidden />
-          <p className="text-sm text-muted-foreground">{COPY.sentBody}</p>
+          <p className="text-sm text-muted-foreground">{t('auth.forgotSentBody')}</p>
         </div>
       </AuthCard>
     );
@@ -51,18 +41,18 @@ export function ForgotPasswordPage() {
 
   return (
     <AuthCard
-      title={COPY.title}
-      subtitle={COPY.subtitle}
+      title={t('auth.forgotTitle')}
+      subtitle={t('auth.forgotSubtitle')}
       footer={
         <Link to="/login" className="font-medium text-primary hover:underline">
-          {COPY.backToLogin}
+          {t('auth.backToLogin')}
         </Link>
       }
     >
       <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-4" noValidate>
         {error != null && <AuthFormError>{toUserMessage(error)}</AuthFormError>}
 
-        <FormField label={COPY.email} required error={form.formState.errors.email?.message}>
+        <FormField label={t('auth.email')} required error={form.formState.errors.email?.message}>
           {({ controlProps, invalid }) => (
             <Input
               {...controlProps}
@@ -76,7 +66,7 @@ export function ForgotPasswordPage() {
         </FormField>
 
         <Button type="submit" isLoading={isPending} className="w-full">
-          {COPY.submit}
+          {t('auth.forgotSubmit')}
         </Button>
       </form>
     </AuthCard>

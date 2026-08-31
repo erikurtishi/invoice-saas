@@ -1,23 +1,13 @@
 import { minorToAmountString, type ProductResponse } from '@invoice-saas/shared';
 import { Loader2, Package, Search } from 'lucide-react';
 import { useId, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useProducts } from '../../features/products/use-products';
 import { useDebouncedValue } from '../../hooks/use-debounced-value';
 import { cn } from '../../lib/cn';
 import { toUserMessage } from '../../lib/error-message';
 import { Input } from '../ui';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  placeholder: 'Search products to add…',
-  label: 'Search products',
-  loading: 'Searching…',
-  nothingFound: 'No products match',
-  clear: 'Clear',
-  error: "Couldn't search products.",
-  noUnit: '',
-} as const;
 
 const PAGE_SIZE = 8;
 
@@ -44,10 +34,11 @@ export function ProductPicker({
   onSelect,
   excludeIds,
   currencyCode,
-  placeholder = COPY.placeholder,
+  placeholder,
   className,
   autoFocus = false,
 }: ProductPickerProps) {
+  const { t } = useTranslation();
   const [input, setInput] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -103,9 +94,9 @@ export function ProductPicker({
           aria-expanded={showList}
           aria-controls={listboxId}
           aria-autocomplete="list"
-          aria-label={COPY.label}
+          aria-label={t('invoices.productSearchLabel')}
           autoFocus={autoFocus}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('invoices.productSearchPlaceholder')}
           value={input}
           onChange={(e) => {
             setInput(e.target.value);
@@ -136,19 +127,19 @@ export function ProductPicker({
           {query.isPending && query.isFetching && (
             <li className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" aria-hidden />
-              {COPY.loading}
+              {t('invoices.productSearching')}
             </li>
           )}
 
           {query.isError && (
             <li className="px-2 py-3 text-sm text-destructive" role="alert">
-              {toUserMessage(query.error) || COPY.error}
+              {toUserMessage(query.error) || t('invoices.productSearchError')}
             </li>
           )}
 
           {!query.isPending && !query.isError && results.length === 0 && (
             <li className="flex items-center justify-between gap-3 px-2 py-3 text-sm text-muted-foreground">
-              <span>{COPY.nothingFound}</span>
+              <span>{t('invoices.productNothingFound')}</span>
               <button
                 type="button"
                 className="rounded font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -157,7 +148,7 @@ export function ProductPicker({
                   setOpen(false);
                 }}
               >
-                {COPY.clear}
+                {t('invoices.productClear')}
               </button>
             </li>
           )}

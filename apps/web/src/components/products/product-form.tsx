@@ -9,7 +9,9 @@ import {
   type ProductInput,
   type ProductResponse,
 } from '@invoice-saas/shared';
-import { useState } from 'react';
+import type { TFunction } from 'i18next';
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 
 import { useCreateProduct, useUpdateProduct } from '../../features/products/use-products';
@@ -22,57 +24,35 @@ import { FormField } from '../form/field';
 import { FormBanner } from '../form/form-banner';
 import { Button, Input, Textarea } from '../ui';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  name: 'Name',
-  description: 'Description',
-  descriptionHint: 'Optional detail that pre-fills the invoice line.',
-  unit: 'Unit',
-  unitHint: 'e.g. hour, piece, kg, day.',
-  price: 'Default price',
-  priceHintWithCurrency: (code: string) => `Per unit, in ${code}. Leave blank if it varies.`,
-  priceHint: 'Per unit, in your business default currency. Leave blank if it varies.',
-  priceFormat: 'Enter an amount like 10.50.',
-  priceRange: 'That price is too large.',
-  taxRate: 'Default tax rate',
-  taxRateHint: 'Percent, e.g. 18 or 8.25. Leave blank for no tax.',
-  taxRateFormat: 'Enter a rate like 18 or 8.25.',
-  taxRateRange: 'That tax rate is too high.',
-  createSubmit: 'Add product',
-  editSubmit: 'Save changes',
-  cancel: 'Cancel',
-  createdToast: 'Product added.',
-  savedToast: 'Product saved.',
-  requestFailed: "Couldn't save this product. Try again.",
-} as const;
-
 /**
  * Resolver schema: the shared `productInputSchema` with the two integer money
  * fields swapped for the decimal strings the inputs actually hold. `''` is a
  * valid (empty) value for both; `onSubmit` converts to minor units / basis points
  * with the shared `money.ts` helpers before hitting the API.
+ *
+ * Built per-render from `t` so the `.refine()` messages are localised (X.1.2).
  */
-const productFormSchema = productInputSchema
-  .omit({ defaultPriceMinor: true, defaultTaxRateBp: true })
-  .extend({
+function buildProductFormSchema(t: TFunction) {
+  return productInputSchema.omit({ defaultPriceMinor: true, defaultTaxRateBp: true }).extend({
     priceInput: z
       .string()
       .trim()
-      .refine((v) => v === '' || amountStringToMinor(v) !== null, COPY.priceFormat)
+      .refine((v) => v === '' || amountStringToMinor(v) !== null, t('products.priceFormat'))
       .refine((v) => {
         const minor = amountStringToMinor(v);
         return v === '' || (minor !== null && minor <= PRODUCT_PRICE_MINOR_MAX);
-      }, COPY.priceRange),
+      }, t('products.priceRange')),
     taxRateInput: z
       .string()
       .trim()
-      .refine((v) => v === '' || percentStringToBp(v) !== null, COPY.taxRateFormat)
+      .refine((v) => v === '' || percentStringToBp(v) !== null, t('products.taxRateFormat'))
       .refine((v) => {
         const bp = percentStringToBp(v);
         return v === '' || (bp !== null && bp <= PRODUCT_TAX_RATE_BP_MAX);
-      }, COPY.taxRateRange),
+      }, t('products.taxRateRange')),
   });
-type ProductFormValues = z.infer<typeof productFormSchema>;
+}
+type ProductFormValues = z.infer<ReturnType<typeof buildProductFormSchema>>;
 
 function toFormValues(product?: ProductResponse): ProductFormValues {
   return {
@@ -94,6 +74,7 @@ export interface ProductFormProps {
 }
 
 export function ProductForm({ product, layout = 'page', onSaved, onCancel }: ProductFormProps) {
+  const { t } = useTranslation();
   const isEdit = product !== undefined;
   const createMutation = useCreateProduct();
   const updateMutation = useUpdateProduct();
@@ -102,12 +83,13 @@ export function ProductForm({ product, layout = 'page', onSaved, onCancel }: Pro
   const profile = useBusinessProfile();
   const [formError, setFormError] = useState<string | null>(null);
 
-  const form = useZodForm(productFormSchema, { defaultValues: toFormValues(product) });
+  const schema = useMemo(() => buildProductFormSchema(t), [t]);
+  const form = useZodForm(schema, { defaultValues: toFormValues(product) });
   const { errors, isDirty } = form.formState;
 
   const priceHint = profile.data
-    ? COPY.priceHintWithCurrency(profile.data.defaultCurrency)
-    : COPY.priceHint;
+    ? t('products.priceHintWithCurrency', { code: profile.data.defaultCurrency })
+    : t('products.priceHint');
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
@@ -125,11 +107,11 @@ export function ProductForm({ product, layout = 'page', onSaved, onCancel }: Pro
         ? await updateMutation.mutateAsync({ id: product.id, input: payload })
         : await createMutation.mutateAsync(payload);
       form.reset(toFormValues(isEdit ? saved : undefined));
-      toast.success(isEdit ? COPY.savedToast : COPY.createdToast);
+      toast.success(isEdit ? t('products.savedToast') : t('products.createdToast'));
       onSaved?.(saved);
     } catch (err) {
       if (!applyFieldErrors<ProductFormValues>(err, form.setError)) {
-        setFormError(toUserMessage(err) || COPY.requestFailed);
+        setFormError(toUserMessage(err) || t('products.requestFailed'));
       }
     }
   });
@@ -145,15 +127,15 @@ export function ProductForm({ product, layout = 'page', onSaved, onCancel }: Pro
       {formError && <FormBanner variant="error">{formError}</FormBanner>}
 
       <fieldset className="flex flex-col gap-4" disabled={isPending}>
-        <FormField label={COPY.name} required error={errors.name?.message}>
+        <FormField label={t('products.fieldName')} required error={errors.name?.message}>
           {({ controlProps, invalid }) => (
             <Input {...controlProps} {...form.register('name')} invalid={invalid} />
           )}
         </FormField>
 
         <FormField
-          label={COPY.description}
-          hint={COPY.descriptionHint}
+          label={t('products.fieldDescription')}
+          hint={t('products.fieldDescriptionHint')}
           error={errors.description?.message}
         >
           {({ controlProps, invalid }) => (
@@ -167,13 +149,21 @@ export function ProductForm({ product, layout = 'page', onSaved, onCancel }: Pro
         </FormField>
 
         <div className="grid gap-4 sm:grid-cols-3">
-          <FormField label={COPY.unit} hint={COPY.unitHint} error={errors.unit?.message}>
+          <FormField
+            label={t('products.fieldUnit')}
+            hint={t('products.fieldUnitHint')}
+            error={errors.unit?.message}
+          >
             {({ controlProps, invalid }) => (
               <Input {...controlProps} {...form.register('unit')} invalid={invalid} />
             )}
           </FormField>
 
-          <FormField label={COPY.price} hint={priceHint} error={errors.priceInput?.message}>
+          <FormField
+            label={t('products.fieldPrice')}
+            hint={priceHint}
+            error={errors.priceInput?.message}
+          >
             {({ controlProps, invalid }) => (
               <Input
                 {...controlProps}
@@ -186,8 +176,8 @@ export function ProductForm({ product, layout = 'page', onSaved, onCancel }: Pro
           </FormField>
 
           <FormField
-            label={COPY.taxRate}
-            hint={COPY.taxRateHint}
+            label={t('products.fieldTaxRate')}
+            hint={t('products.taxRateHint')}
             error={errors.taxRateInput?.message}
           >
             {({ controlProps, invalid }) => (
@@ -206,11 +196,11 @@ export function ProductForm({ product, layout = 'page', onSaved, onCancel }: Pro
       <div className="flex justify-end gap-3">
         {layout === 'dialog' && onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isPending}>
-            {COPY.cancel}
+            {t('common.cancel')}
           </Button>
         )}
         <Button type="submit" isLoading={isPending} disabled={isEdit && !isDirty}>
-          {isEdit ? COPY.editSubmit : COPY.createSubmit}
+          {isEdit ? t('products.formEditSubmit') : t('products.formCreateSubmit')}
         </Button>
       </div>
     </form>

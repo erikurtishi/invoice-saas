@@ -6,32 +6,14 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertTriangle, Sparkles, X } from 'lucide-react';
 import { useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useAiStatus, useDraftInvoice } from '../../features/ai/use-ai';
+import { useFormatters } from '../../i18n/format';
 import { toUserMessage } from '../../lib/error-message';
-import { formatDate } from '../../lib/format-time';
 import { getTransition, useReducedMotion } from '../../lib/motion-presets';
 import { UpgradeCallout } from '../billing/upgrade-callout';
 import { Button, Textarea } from '../ui';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  gateTitle: 'Draft invoices with AI',
-  gateBody:
-    'On Premium, describe an invoice in plain language and AI fills in the client, line items and dates — you review everything before saving.',
-  heading: 'Draft with AI',
-  sub: 'Describe the invoice in a sentence. AI fills the form below — nothing is saved or sent until you do it.',
-  placeholder: AI_DRAFT_EXAMPLE_PROMPTS[0],
-  examplesLabel: 'Try:',
-  draft: 'Draft invoice',
-  drafting: 'Drafting your invoice…',
-  cancel: 'Cancel',
-  applied: 'Draft ready — review the highlighted fields below, then Save.',
-  unavailable: 'AI drafting isn’t switched on for this workspace yet.',
-  counter: (remaining: number, limit: number) =>
-    `${remaining} of ${limit} AI drafts left this month`,
-  resets: (date: string) => `resets ${date}`,
-} as const;
 
 export interface AiDraftPanelProps {
   /** `entitlements.canUseAi` — false for Free/Basic, who get the upgrade prompt. */
@@ -51,6 +33,8 @@ export interface AiDraftPanelProps {
  * every call (7.1.6); this is only the affordance.
  */
 export function AiDraftPanel({ canUseAi, ai, onApply }: AiDraftPanelProps) {
+  const { t } = useTranslation();
+  const { formatDate } = useFormatters();
   const reduce = useReducedMotion();
   const status = useAiStatus();
   const mutation = useDraftInvoice();
@@ -62,7 +46,13 @@ export function AiDraftPanel({ canUseAi, ai, onApply }: AiDraftPanelProps) {
   const [applied, setApplied] = useState(false);
 
   if (!canUseAi) {
-    return <UpgradeCallout variant="card" title={COPY.gateTitle} description={COPY.gateBody} />;
+    return (
+      <UpgradeCallout
+        variant="card"
+        title={t('invoices.aiGateTitle')}
+        description={t('invoices.aiGateBody')}
+      />
+    );
   }
 
   const serverEnabled = status.data?.enabled ?? true;
@@ -106,8 +96,8 @@ export function AiDraftPanel({ canUseAi, ai, onApply }: AiDraftPanelProps) {
       <div className="flex items-start gap-3">
         <Sparkles className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">{COPY.heading}</p>
-          <p className="text-xs text-muted-foreground">{COPY.sub}</p>
+          <p className="text-sm font-medium text-foreground">{t('invoices.aiHeading')}</p>
+          <p className="text-xs text-muted-foreground">{t('invoices.aiSub')}</p>
         </div>
       </div>
 
@@ -135,10 +125,10 @@ export function AiDraftPanel({ canUseAi, ai, onApply }: AiDraftPanelProps) {
               >
                 <Sparkles className="size-5 text-primary" />
               </motion.span>
-              <span className="flex-1 text-sm text-foreground">{COPY.drafting}</span>
+              <span className="flex-1 text-sm text-foreground">{t('invoices.aiDrafting')}</span>
               <Button type="button" variant="ghost" size="sm" onClick={handleCancel}>
                 <X className="size-4" aria-hidden />
-                {COPY.cancel}
+                {t('common.cancel')}
               </Button>
             </motion.div>
           ) : (
@@ -154,7 +144,7 @@ export function AiDraftPanel({ canUseAi, ai, onApply }: AiDraftPanelProps) {
                 rows={2}
                 value={prompt}
                 disabled={!serverEnabled}
-                placeholder={COPY.placeholder}
+                placeholder={AI_DRAFT_EXAMPLE_PROMPTS[0]}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => {
                   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -162,12 +152,14 @@ export function AiDraftPanel({ canUseAi, ai, onApply }: AiDraftPanelProps) {
                     handleDraft();
                   }
                 }}
-                aria-label={COPY.heading}
+                aria-label={t('invoices.aiHeading')}
               />
 
               {serverEnabled ? (
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-xs text-muted-foreground">{COPY.examplesLabel}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t('invoices.aiExamplesLabel')}
+                  </span>
                   {AI_DRAFT_EXAMPLE_PROMPTS.map((example) => (
                     <button
                       key={example}
@@ -180,23 +172,26 @@ export function AiDraftPanel({ canUseAi, ai, onApply }: AiDraftPanelProps) {
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">{COPY.unavailable}</p>
+                <p className="text-xs text-muted-foreground">{t('invoices.aiUnavailable')}</p>
               )}
 
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-muted-foreground">
                   {usage && usage.limit !== null ? (
                     <>
-                      {COPY.counter(usage.remaining ?? 0, usage.limit)}
+                      {t('invoices.aiCounter', {
+                        remaining: usage.remaining ?? 0,
+                        limit: usage.limit,
+                      })}
                       {usage.periodResetsAt
-                        ? ` · ${COPY.resets(formatDate(usage.periodResetsAt))}`
+                        ? ` · ${t('invoices.aiResets', { date: formatDate(usage.periodResetsAt) })}`
                         : ''}
                     </>
                   ) : null}
                 </p>
                 <Button type="button" size="sm" onClick={handleDraft} disabled={!canSubmit}>
                   <Sparkles className="size-4" aria-hidden />
-                  {COPY.draft}
+                  {t('invoices.aiDraft')}
                 </Button>
               </div>
             </motion.div>
@@ -216,7 +211,7 @@ export function AiDraftPanel({ canUseAi, ai, onApply }: AiDraftPanelProps) {
 
       {applied && !mutation.isPending && (
         <div className="mt-2 flex flex-col gap-1">
-          <p className="text-xs font-medium text-primary">{COPY.applied}</p>
+          <p className="text-xs font-medium text-primary">{t('invoices.aiApplied')}</p>
           {warnings.map((warning) => (
             <p key={warning} className="flex items-start gap-1.5 text-xs text-muted-foreground">
               <AlertTriangle className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />

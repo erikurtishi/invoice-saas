@@ -3,25 +3,12 @@ import { Copy, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { useTranslation } from 'react-i18next';
+
 import { useDeleteInvoice, useDuplicateInvoice } from '../../features/invoices/use-invoices';
 import { useToast } from '../../hooks/use-toast';
 import { toUserMessage } from '../../lib/error-message';
 import { Button, ConfirmDialog } from '../ui';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  edit: 'Edit',
-  duplicate: 'Duplicate',
-  delete: 'Delete',
-  duplicatedToast: 'Duplicated — opened as a new draft.',
-  duplicateFailed: "Couldn't duplicate this invoice.",
-  deletedToast: 'Invoice deleted.',
-  deleteFailed: "Couldn't delete this invoice.",
-  deleteTitle: 'Delete this invoice?',
-  deleteBody: (n: string) =>
-    `${n} will be removed from your library. Its number stays used — invoice numbers are never reused.`,
-  deleteConfirm: 'Delete invoice',
-} as const;
 
 /**
  * Record-level actions for a saved invoice (backlog 4.4): open in edit mode,
@@ -30,6 +17,7 @@ const COPY = {
  * record.
  */
 export function InvoiceRecordActions({ invoice }: { invoice: InvoiceResponse }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const toast = useToast();
   const duplicate = useDuplicateInvoice();
@@ -39,20 +27,20 @@ export function InvoiceRecordActions({ invoice }: { invoice: InvoiceResponse }) 
   const runDuplicate = async () => {
     try {
       const copy = await duplicate.mutateAsync(invoice.id);
-      toast.success(COPY.duplicatedToast);
-      void navigate(`/invoices/${copy.id}/edit`);
+      toast.success(t('invoices.duplicatedToast'));
+      void navigate(`/console/invoices/${copy.id}/edit`);
     } catch (err) {
-      toast.error(toUserMessage(err) || COPY.duplicateFailed);
+      toast.error(toUserMessage(err) || t('invoices.duplicateFailed'));
     }
   };
 
   const runDelete = async () => {
     try {
       await remove.mutateAsync(invoice.id);
-      toast.success(COPY.deletedToast);
-      void navigate('/invoices');
+      toast.success(t('invoices.deletedToast'));
+      void navigate('/console/invoices');
     } catch (err) {
-      toast.error(toUserMessage(err) || COPY.deleteFailed);
+      toast.error(toUserMessage(err) || t('invoices.deleteFailed'));
       throw err; // keep the confirm dialog open
     }
   };
@@ -63,10 +51,10 @@ export function InvoiceRecordActions({ invoice }: { invoice: InvoiceResponse }) 
         type="button"
         variant="outline"
         size="sm"
-        onClick={() => void navigate(`/invoices/${invoice.id}/edit`)}
+        onClick={() => void navigate(`/console/invoices/${invoice.id}/edit`)}
       >
         <Pencil className="size-4" aria-hidden />
-        {COPY.edit}
+        {t('common.edit')}
       </Button>
       <Button
         type="button"
@@ -76,7 +64,7 @@ export function InvoiceRecordActions({ invoice }: { invoice: InvoiceResponse }) 
         onClick={() => void runDuplicate()}
       >
         <Copy className="size-4" aria-hidden />
-        {COPY.duplicate}
+        {t('invoices.duplicate')}
       </Button>
       <Button
         type="button"
@@ -86,15 +74,15 @@ export function InvoiceRecordActions({ invoice }: { invoice: InvoiceResponse }) 
         onClick={() => setConfirmDelete(true)}
       >
         <Trash2 className="size-4" aria-hidden />
-        {COPY.delete}
+        {t('common.delete')}
       </Button>
 
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title={COPY.deleteTitle}
-        description={COPY.deleteBody(invoice.number ?? invoice.documentType)}
-        confirmLabel={COPY.deleteConfirm}
+        title={t('invoices.deleteTitle')}
+        description={t('invoices.deleteBody', { name: invoice.number ?? invoice.documentType })}
+        confirmLabel={t('invoices.deleteConfirm')}
         destructive
         onConfirm={runDelete}
       />

@@ -1,6 +1,7 @@
 import { WifiOff } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { getTransition } from '../../lib/motion-presets';
 
@@ -10,11 +11,6 @@ import { getTransition } from '../../lib/motion-presets';
  * Reads `navigator.onLine` through `useSyncExternalStore` (no `useEffect` fetch
  * pattern, and correct under StrictMode double-invoke).
  */
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  message: "You're offline — changes won't save until you reconnect.",
-} as const;
 
 function subscribe(onChange: () => void): () => void {
   window.addEventListener('online', onChange);
@@ -30,6 +26,7 @@ const getSnapshot = () => navigator.onLine;
 const getServerSnapshot = () => true;
 
 export function OfflineBanner() {
+  const { t } = useTranslation();
   const online = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   return (
@@ -46,7 +43,7 @@ export function OfflineBanner() {
         >
           <div className="mx-auto flex max-w-[1600px] items-center gap-2 px-4 py-2 text-sm font-medium sm:px-6 lg:px-8">
             <WifiOff className="size-4 shrink-0" aria-hidden />
-            {COPY.message}
+            {t('states.offlineBanner')}
           </div>
         </motion.div>
       )}

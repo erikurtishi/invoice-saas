@@ -393,7 +393,7 @@ export async function generateInvoiceDraft(
   const [user, clientRows] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
-      select: { defaultCurrency: true, preferredLanguage: true },
+      select: { defaultCurrency: true, invoiceLanguage: true },
     }),
     db.client.findMany({
       where: { deletedAt: null },
@@ -419,7 +419,7 @@ export async function generateInvoiceDraft(
 
   const built = buildDraft(
     outcome.extraction,
-    { today, defaultCurrency: user.defaultCurrency, language: user.preferredLanguage },
+    { today, defaultCurrency: user.defaultCurrency, language: user.invoiceLanguage },
     clientRows,
   );
 

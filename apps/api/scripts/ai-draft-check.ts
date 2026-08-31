@@ -110,7 +110,8 @@ async function makeTenant(tier: 'FREE' | 'PREMIUM', label: string) {
       passwordHash: 'x',
       businessName: `AI Check ${label}`,
       defaultCurrency: 'EUR',
-      preferredLanguage: 'EN',
+      uiLanguage: 'EN',
+      invoiceLanguage: 'EN',
     },
   });
   if (tier === 'PREMIUM') {

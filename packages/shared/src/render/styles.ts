@@ -86,6 +86,7 @@ export function buildStylesheet(config: TemplateConfig, options: StyleOptions): 
     `table.items tr{break-inside:avoid}`,
     `table.items .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}`,
     `table.items .desc-unit{color:var(--muted);font-size:10px}`,
+    `table.items .items-empty-cell{text-align:center;color:var(--muted);font-style:italic;padding:18px 8px}`,
 
     // Totals
     `.totals{display:flex;justify-content:flex-end;break-inside:avoid}`,

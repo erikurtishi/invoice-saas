@@ -8,14 +8,9 @@ import {
   type TemplateConfig,
 } from '@invoice-saas/shared';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { InvoicePreview } from '../template/invoice-preview';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  noTemplate: 'Pick or design a template to see the preview.',
-  draftNumber: 'DRAFT',
-} as const;
 
 function nonEmpty(...parts: Array<string | null | undefined>): string[] {
   return parts.map((p) => p?.trim()).filter((p): p is string => !!p);
@@ -70,6 +65,8 @@ export function InvoicePreviewPanel({
   templateConfig,
   previewNumber,
 }: InvoicePreviewPanelProps) {
+  const { t } = useTranslation();
+  const draftNumber = t('invoices.previewDraftNumber');
   const data = useMemo<InvoiceRenderData>(() => {
     const fields = DOCUMENT_TYPE_FIELDS[value.documentType];
     const { lineItems, totals } = computeInvoiceTotals(
@@ -88,7 +85,7 @@ export function InvoicePreviewPanel({
       documentType: value.documentType,
       language: value.language,
       currency: value.currency,
-      number: previewNumber || COPY.draftNumber,
+      number: previewNumber || draftNumber,
       issueDate: value.issueDate,
       dueDate: fields.secondaryDate === 'none' ? null : value.dueDate,
       paidDate: fields.showPaidDate ? value.paidDate : null,
@@ -119,12 +116,12 @@ export function InvoicePreviewPanel({
       footerText: value.footerText ?? null,
       signatureLabel: value.signatureLabel ?? null,
     };
-  }, [value, profile, selectedClient, previewNumber]);
+  }, [value, profile, selectedClient, previewNumber, draftNumber]);
 
   if (!templateConfig) {
     return (
       <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 p-8 text-center text-sm text-muted-foreground">
-        {COPY.noTemplate}
+        {t('invoices.previewNoTemplate')}
       </div>
     );
   }

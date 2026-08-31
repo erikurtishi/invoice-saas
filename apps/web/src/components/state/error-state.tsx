@@ -1,4 +1,5 @@
 import { RefreshCw, TriangleAlert } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../lib/cn';
 import { devDetail, toUserMessage } from '../../lib/error-message';
@@ -17,13 +18,6 @@ import { Button } from '../ui/button';
  * wording comes from `toUserMessage`, shared with the toast system so a failure
  * reads identically wherever it shows.
  */
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  inlineTitle: "This didn't load",
-  pageTitle: "This page didn't load",
-  retry: 'Try again',
-} as const;
 
 export interface ErrorStateProps {
   variant?: 'inline' | 'page';
@@ -45,7 +39,9 @@ export function ErrorState({
   onRetry,
   className,
 }: ErrorStateProps) {
-  const heading = title ?? (variant === 'page' ? COPY.pageTitle : COPY.inlineTitle);
+  const { t } = useTranslation();
+  const heading =
+    title ?? (variant === 'page' ? t('states.pageErrorTitle') : t('states.inlineErrorTitle'));
   const message = description ?? toUserMessage(error);
   const detail = devDetail(error);
 
@@ -81,7 +77,7 @@ export function ErrorState({
           className="mt-1 border-destructive/40 text-foreground hover:bg-destructive/10"
         >
           <RefreshCw className="size-4" aria-hidden />
-          {COPY.retry}
+          {t('states.retry')}
         </Button>
       )}
     </div>

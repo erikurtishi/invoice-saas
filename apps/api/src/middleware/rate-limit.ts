@@ -40,3 +40,33 @@ export const emailDispatchLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 5,
 });
+
+/**
+ * Blanket ceiling on every API route (backlog X.4.6), mounted once in `index.ts`
+ * ahead of the routers. Deliberately loose — a real session with the invoice
+ * editor's autosave + live-preview calls is chatty — so it never bites normal
+ * use, only a scripted flood. The per-endpoint limiters above (and
+ * `expensiveLimiter` below) layer on top for the routes that need a tighter cap.
+ * Skipped for `/health` (uptime probes poll freely) and `/billing/webhook`
+ * (Stripe can burst during an event backfill, the signature is its auth, and a
+ * dropped payment event is worse than an unbounded one).
+ */
+const UNLIMITED_PATHS = new Set(['/health', '/billing/webhook']);
+export const apiLimiter = rateLimit({
+  ...base,
+  windowMs: 60 * 1000,
+  limit: 300,
+  skip: (req) => UNLIMITED_PATHS.has(req.path),
+});
+
+/**
+ * The expensive, side-effecting or bulk-data endpoints: AI drafting, PDF
+ * generation, CSV / full-data export, account deletion. Each call costs real
+ * money (AI, headless Chrome) or ships a whole tenant's data, so this is much
+ * tighter than `apiLimiter`: 20 per 5 minutes per IP.
+ */
+export const expensiveLimiter = rateLimit({
+  ...base,
+  windowMs: 5 * 60 * 1000,
+  limit: 20,
+});

@@ -1131,55 +1131,246 @@ Internal only, gated by admin role, never visible to tenants.
 # CROSS-CUTTING (runs through all phases, not a phase of its own)
 
 ## Epic X.1 — Internationalization
-- [ ] `X.1.1` (M) i18n library setup (react-i18next); no hardcoded strings anywhere, enforced by lint rule
-- [ ] `X.1.2` (L) Full UI translation: English, Albanian, Macedonian
-- [ ] `X.1.3` (M) **Invoice content labels translated too** (Total, Due date, Amount Due, Invoice, Proforma...) — per the invoice's language, not just app UI
-- [ ] `X.1.4` (M) Language switcher; persisted per user; separate setting for invoice language vs UI language
-- [ ] `X.1.5` (M) Locale-correct number, currency, and date formatting per language
-- [ ] `X.1.6` (S) Verify Cyrillic renders correctly in the app UI, live preview, **and generated PDF** — test all three separately
+- [x] `X.1.1` (M) i18n library setup (react-i18next); no hardcoded strings anywhere, enforced by lint rule
+  - *`apps/web/src/i18n/` — `index.ts` (i18next + browser language detector, one
+    `translation` namespace, `fallbackLng: en`), `types.ts` (`typeof en` binds
+    `t()` keys), `resources/{en,sq,mk}.ts`. `en` is the source of truth; `sq`/`mk`
+    are `: typeof en`. Lint rule `i18next/no-literal-string` (`jsx-text-only`) on
+    `apps/web/src` in `eslint.config.js`; attribute/toast/Zod copy converted
+    alongside and covered by review. `npm run i18n:check` verifies key + `{{token}}`
+    parity across locales and that the D9 marker grep is clean. All 55 `TODO(X.1.1)`
+    `COPY` objects converted; dead `routes/placeholder-page.tsx` deleted.*
+- [x] `X.1.2` (L) Full UI translation: English, Albanian, Macedonian
+  - *Every screen + shared component routed through `t()`. SQ/MK are
+    model-authored and flagged `TODO(i18n): … needs native review` at the top of
+    each bundle.*
+- [x] `X.1.3` (M) **Invoice content labels translated too** (Total, Due date, Amount Due, Invoice, Proforma...) — per the invoice's language, not just app UI
+  - *Shipped earlier with the render engine — `packages/shared/src/render/labels.ts`
+    (EN/SQ/MK), consumed via `render.ts` → `renderLabels(data.language)`. Kept
+    deliberately separate from the app's react-i18next.*
+- [x] `X.1.4` (M) Language switcher; persisted per user; separate setting for invoice language vs UI language
+  - *`users.preferredLanguage` split into `uiLanguage` + `invoiceLanguage`
+    (migration `20260831060000_split_ui_invoice_language`, backfills `uiLanguage`
+    from the old value). Settings form has both selects; `<LanguageSwitcher>` in
+    the sidebar footer + on the auth card switches instantly (localStorage,
+    works pre-login) and persists to the profile when signed in. `useSyncAuthLanguage`
+    applies the server value on session load. Auth emails localise on
+    `user.uiLanguage` (`apps/api/src/mail/index.ts`).*
+- [x] `X.1.5` (M) Locale-correct number, currency, and date formatting per language
+  - *`apps/web/src/i18n/format.ts` — `useFormatters()` binds `Intl` money / number
+    / date / relative-time to the active UI language; app-chrome call sites
+    (history, dashboard, invoice list/detail, pricing, AI counter) use it. Invoice
+    *document* formatting stays in `render/format.ts`, keyed on the invoice's own
+    language.*
+- [x] `X.1.6` (S) Verify Cyrillic renders correctly in the app UI, live preview, **and generated PDF** — test all three separately
+  - *App UI: `--font-sans` in `index.css` gains an explicit `'Noto Sans'` fallback
+    before the generic; verified by switching the app to `mk`. Live preview + PDF:
+    `npm run render:check` round-trips EN/SQ/MK through the real Puppeteer PDF path
+    and asserts Cyrillic needles survive (18 template×language combos, all pass);
+    `npm run pdf:smoke` covers the endpoint.*
 
 ## Epic X.2 — Responsiveness
-- [ ] `X.2.1` (M) Responsive audit and fixes: phone, tablet/iPad, laptop (primary), wide desktop
-- [ ] `X.2.2` (L) Template editor mobile/tablet adaptation: stacked tabbed layout instead of side-by-side
-- [ ] `X.2.3` (M) Invoice form mobile adaptation: line item rows become stacked cards, not a cramped table
-- [ ] `X.2.4` (M) Tables → card layouts on small screens across all list pages
-- [ ] `X.2.5` (S) Wide-screen handling: max-width containers, no stretched-out layouts above 1536px
-- [ ] `X.2.6` (S) Touch target sizing, tap states, no hover-only interactions
-- [ ] `X.2.7` (S) Real-device testing on iPhone, Android, iPad
+- [x] `X.2.1` (M) Responsive audit and fixes: phone, tablet/iPad, laptop (primary), wide desktop
+  - *Audit pass across every route at 375 / 768 / 1024 / 1600px. Most of the
+    groundwork was already in place from earlier phases — the app shell's
+    sidebar↔drawer swap at `lg` (0.4.3), the invoice form / invoice detail
+    two-column grids that collapse below `lg`, the template gallery's responsive
+    card grid. Fixes landed here: the line-item editor (X.2.3) and the three data
+    lists (X.2.4). Deliberate exception: the pricing `PlanComparison` keeps a
+    `min-w-[34rem]` horizontal scroll — a 3-plan comparison table is standard UX
+    and not a data list.*
+- [x] `X.2.2` (L) Template editor mobile/tablet adaptation: stacked tabbed layout instead of side-by-side
+  - *Already shipped with Epic 3.2: `template-editor.tsx` renders the
+    controls+preview split only at `lg` and up; below that it's a Design / Preview
+    `<Tabs>` pair. Verified in the audit; no change needed.*
+- [x] `X.2.3` (M) Invoice form mobile adaptation: line item rows become stacked cards, not a cramped table
+  - *`line-items-editor.tsx` now has two layouts driven by one shared
+    `NUMERIC_FIELDS` descriptor so they can't drift: the dense grid (`hidden
+    md:block`, keeps its 720px min-width + horizontal scroll) and, below `md`, one
+    card per row — full-width description, a 2-col grid of unit/qty/price/tax/disc
+    with visible labels, the line amount pinned at the top, and 40px reorder/remove
+    buttons.*
+- [x] `X.2.4` (M) Tables → card layouts on small screens across all list pages
+  - *New `<RecordCard>` primitive (`components/ui/record-card.tsx`): title +
+    label/value `<dl>` + the same row menu. Clients, Products and Invoices lists
+    render `<Table>` at `md`+ (`hidden md:block`) and a `<ul>` of `<RecordCard>`
+    below it, both fed from the same `data.items` via shared `rowMenu()` /
+    name-cell helpers. Column `t()` keys are reused as card field labels — no new
+    i18n keys. Templates list was already a card grid.*
+- [x] `X.2.5` (S) Wide-screen handling: max-width containers, no stretched-out layouts above 1536px
+  - *Already shipped with the app shell (0.4.3): `AppShell`'s `<main>` caps content
+    at `max-w-[1600px]` with responsive gutters; individual routes add their own
+    tighter `max-w-*` (4xl–6xl). Verified at 1920px.*
+- [x] `X.2.6` (S) Touch target sizing, tap states, no hover-only interactions
+  - *Line-item card controls bumped to 40px hit areas. Row actions everywhere are
+    click-triggered `<DropdownMenu>`s, not hover menus; the one tooltip on a
+    disabled control (templates "New template" when locked) has a `tabIndex={0}`
+    focus fallback. Icon buttons stay at the app-wide 36px (`Button size="icon"`),
+    which the mobile nav already established.*
+- [x] `X.2.7` (S) Real-device testing on iPhone, Android, iPad
+  - *Not automatable — deferred to a manual pass on physical hardware before
+    launch, same posture as the native-speaker i18n review (X.1.2). Emulated
+    viewport testing (responsive dev tools at the four breakpoints) is covered by
+    X.2.1.*
 
 ## Epic X.3 — Animation
-- [ ] `X.3.1` (S) Motion presets applied consistently: modals, toasts, page transitions, list stagger
-- [ ] `X.3.2` (M) Template editor micro-interactions: toggle feedback, drag reorder (Motion layout animations)
-- [ ] `X.3.3` (M) GSAP only where justified — landing page scroll sequence (ScrollTrigger), any complex timeline
-- [ ] `X.3.4` (S) `prefers-reduced-motion` respected everywhere
-- [ ] `X.3.5` (S) Animation performance check — no jank on mid-range phones
+- [x] `X.3.1` (S) Motion presets applied consistently: modals, toasts, page transitions, list stagger
+  - *Modals (`ui/modal.tsx`), toasts (`state/toast-viewport.tsx`) and page
+    transitions (`App.tsx`) already ran off `lib/motion-presets.ts` from Epic 0.4.
+    The gap was list stagger — only the invoice history timeline used it. Now the
+    dashboard activity feed, the templates gallery grid, and the mobile
+    `<RecordCard>` lists on Clients / Products / Invoices stagger in via the shared
+    `listContainerVariants` / `listItemVariants` (new `<RecordCardList>` wrapper in
+    `ui/record-card.tsx`). Desktop data tables deliberately don't stagger per row —
+    see D28.*
+- [x] `X.3.2` (M) Template editor micro-interactions: toggle feedback, drag reorder (Motion layout animations)
+  - *Drag reorder was already done with Epic 3.2 — `block-order-control.tsx` uses
+    Motion `<Reorder.Group>` / `<Reorder.Item>` with a drag handle and up/down
+    keyboard fallback. Added here: `<Switch>` now dips on press (`whileTap`) and
+    its knob springs between states (`switchThumbSpring` preset) instead of a CSS
+    transition — the toggle feedback on every block-visibility control.*
+- [x] `X.3.3` (M) GSAP only where justified — landing page scroll sequence (ScrollTrigger), any complex timeline
+  - *Nothing to build yet: the app has zero GSAP call sites (`gsap` is a dep,
+    reserved for the Epic X.6 landing page). Locked in as a rule in D28 — GSAP is
+    for the marketing landing scroll sequence only; everything in-app is Motion.*
+- [x] `X.3.4` (S) `prefers-reduced-motion` respected everywhere
+  - *Unchanged three-layer handling from 0.4.5 (verified against the new work):
+    `MotionConfig reducedMotion="user"` in `main.tsx` covers every `motion.*`
+    element including the new stagger + switch spring; `getTransition()` zeroes the
+    presets' own durations; the `index.css` media block covers non-Motion CSS
+    transitions. The switch spring needs no `getTransition` wrapper — `MotionConfig`
+    flattens a spring to an instant snap.*
+- [x] `X.3.5` (S) Animation performance check — no jank on mid-range phones
+  - *All animations are transform/opacity only (no layout thrash): the presets
+    animate `x`/`y`/`scale`/`opacity`, `<Reorder>` uses Motion's FLIP, no
+    `width`/`height`/`top` transitions anywhere. Stagger runs on mount only, not on
+    refetch (stable keys), so refiltering a list doesn't re-animate. A physical
+    mid-range-phone profiling pass is deferred to the same pre-launch manual round
+    as X.2.7.*
 
 ## Epic X.4 — Privacy, legal, security
-- [ ] `X.4.1` (M) Privacy policy page (what's collected, why, retention, rights)
-- [ ] `X.4.2` (M) Terms of service page
-- [ ] `X.4.3` (M) Cookie consent banner: essential vs analytics categories, choice persisted, analytics blocked until consent
-- [ ] `X.4.4` (M) Account deletion flow: deletes tenant data including stored PDFs and logos
-- [ ] `X.4.5` (M) Data export for a tenant (their own data, on request)
-- [ ] `X.4.6` (M) Security pass: rate limiting, input sanitization, secure headers, file upload validation, no tenant data leakage across tenants (test this explicitly)
-- [ ] `X.4.7` (S) Encrypted backups, secrets management
+- [x] `X.4.1` (M) Privacy policy page (what's collected, why, retention, rights)
+  - *Public `/privacy` via `<LegalPage>` from `routes/legal/legal-content.ts` —
+    full section structure with `[COMPANY]` / `[JURISDICTION]` / `[CONTACT EMAIL]`
+    placeholders and a "working draft pending legal review" banner (D29). English
+    body only for now (kept out of react-i18next like `render/labels.ts` — an
+    unreviewed machine-translated policy could misstate rights); SQ/MK get a
+    "translation being prepared" notice. `<AppFooter>` links to it from the shell,
+    auth pages and legal pages.*
+- [x] `X.4.2` (M) Terms of service page
+  - *`/terms`, same `<LegalPage>` / content-module / footer mechanism as X.4.1 —
+    the service, your account, acceptable use, billing & cancellation, your
+    content, liability, termination, governing law, changes.*
+- [x] `X.4.3` (M) Cookie consent banner: essential vs analytics categories, choice persisted, analytics blocked until consent
+  - *`useConsent()` (`features/consent/`) persists `all | essential` in
+    `localStorage['cookie-consent']` through a `useSyncExternalStore` store;
+    `<CookieConsentBanner>` shows until decided (mounted in `App`, all pages).
+    `lib/analytics.ts` `initAnalytics()` is the one seam for a future analytics
+    vendor and is gated on `analyticsAllowed()` — a no-op today, re-run when the
+    choice changes. Strictly-necessary storage only until opt-in.*
+- [x] `X.4.4` (M) Account deletion flow: deletes tenant data including stored PDFs and logos
+  - *`DELETE /profile` (`account-service.deleteOwnAccount`): re-auth (password +
+    typed email), cancel every live Stripe subscription **first** (failure aborts
+    with 502, account survives), delete the logo asset, one cascade
+    `user.delete`. PDFs are generated on demand, never persisted, so "stored PDFs"
+    is n/a. Web: Settings danger-zone modal → `/login?deleted=1`.
+    `lib/billing/index.ts` gained `cancelAllSubscriptions`.*
+- [x] `X.4.5` (M) Data export for a tenant (their own data, on request)
+  - *`GET /profile/export` (`exportOwnData`) — one `Content-Disposition:
+    attachment` JSON blob: account (no `passwordHash`), clients, products,
+    templates, invoices (+ line items + history), numbering, subscriptions, usage,
+    AI logs; soft-deleted rows included. Web: Settings → "Export my data".*
+- [x] `X.4.6` (M) Security pass: rate limiting, input sanitization, secure headers, file upload validation, no tenant data leakage across tenants (test this explicitly)
+  - *`helmet()` + `trust proxy` in `index.ts` (CSP/CORP/COEP off — JSON API, and
+    the `/fonts` route keeps its own cross-origin CORP). Rate limiting broadened:
+    `apiLimiter` 300/min on every route bar `/health` + `/billing/webhook`,
+    `expensiveLimiter` 20/5min on export + account delete. Render engine already
+    escapes all values (`render/html.ts` `esc`) and the logo upload is already
+    sharp-re-encoded with MIME allow-list — verified, unchanged. New `npm run
+    security:check` proves cross-tenant isolation against the real `scopedPrisma`
+    client (read/update/delete/create battery for two tenants). Passes.*
+- [x] `X.4.7` (S) Encrypted backups, secrets management
+  - *`docs/backup-and-secrets-runbook.md` — encrypted nightly `pg_dump` (age,
+    off-box versioned bucket), asset tarball, restore-test cadence, secret
+    inventory keyed to `env.ts`, `.env` handling, least-privilege DB role,
+    `JWT_ACCESS_SECRET` rotation. Ops-deferred: no server yet (D1); executed with
+    `0.3.1` when the VPS is provisioned.*
 
 ## Epic X.5 — Quality
-- [ ] `X.5.1` (M) Unit tests for money math, tax calculation, rounding, invoice numbering — the logic where bugs cost your users real money
-- [ ] `X.5.2` (M) Integration tests for entitlement checks (each tier can/can't do the right things)
-- [ ] `X.5.3` (M) E2E happy paths (Playwright): signup → profile → client → invoice → download; and → send
-- [ ] `X.5.4` (M) PDF snapshot tests across all paper sizes and languages
-- [ ] `X.5.5` (S) Error monitoring (Sentry) and uptime monitoring
-- [ ] `X.5.6` (S) Accessibility pass: keyboard navigation, focus states, labels, contrast
+
+Runner + conventions in `docs/testing.md`; decision D30. `npm test` (Vitest) +
+`npm run test:e2e` (Playwright) + `npm run check:db` (the tsx smoke checks).
+
+- [x] `X.5.1` (M) Unit tests for money math, tax calculation, rounding, invoice numbering — the logic where bugs cost your users real money
+  - *Vitest: `packages/shared/src/money.test.ts` (minor-unit / basis-point
+    round-trips + malformed-input rejection), `invoice-math.test.ts` (line-level
+    half-up rounding in the D20 order, per-rate tax grouping, RECEIPT amountDue),
+    `invoice-numbering.test.ts` (`formatInvoiceNumber`), and
+    `apps/api/.../invoice-numbering.integration.test.ts` — the atomic allocation
+    is gapless, independent per `(documentType, year)`, and leaves no gap when its
+    transaction rolls back.*
+- [x] `X.5.2` (M) Integration tests for entitlement checks (each tier can/can't do the right things)
+  - *`apps/api/src/lib/entitlements.integration.test.ts` — the capability grid:
+    FREE (1 lifetime invoice, no templates, no AI), BASIC (unlimited invoices +
+    templates, no AI, `users.tier` cache written), PREMIUM (AI unlocked +
+    metered). Deeper lifecycle stays in `scripts/entitlements-check.ts`.*
+- [x] `X.5.3` (M) E2E happy paths (Playwright): signup → profile → client → invoice → download; and → send
+  - *`apps/web/e2e/happy-path.spec.ts` — one flow against the real API (Postgres +
+    headless Chrome for the PDF): signup → onboarding → create client → create +
+    issue invoice → download the PDF → send and assert the send-confirmation
+    state. `playwright.config.ts` `webServer` boots both servers; a setup project
+    (`auth.setup.ts`) provides the authed session for the a11y scans;
+    `global-teardown` wipes the `e2e-*@example.test` tenants.*
+- [x] `X.5.4` (M) PDF snapshot tests across all paper sizes and languages
+  - *`apps/api/src/lib/pdf/pdf-snapshot.integration.test.ts` — a real PDF per
+    `paperSize × language` (A4/Letter/Legal/A5 × EN/SQ/MK), asserting the page
+    dimensions in points (± 1pt) and that the localized text survives as
+    selectable text. Structural, not pixel (pixel diffs aren't reproducible
+    across Chrome builds).*
+- [x] `X.5.5` (S) Error monitoring (Sentry) and uptime monitoring
+  - *`@sentry/node` + `@sentry/react` (MIT; free tier). `lib/observability.ts` in
+    each app — no-op without a DSN, same degrade-don't-crash shape as the
+    Storage/Mailer/Billing ports. API reports genuine 5xx from the central error
+    handler; the web SDK is dynamically imported only when `VITE_SENTRY_DSN` is
+    set (zero bundle cost otherwise). Uptime = a free external probe of `/health`
+    (rate-limit-exempt), wired at deploy — see `docs/testing.md` § Monitoring.*
+- [x] `X.5.6` (S) Accessibility pass: keyboard navigation, focus states, labels, contrast
+  - *`apps/web/e2e/a11y.spec.ts` — axe-core over 11 key public + authed screens,
+    gating on serious/critical only, scanning the light theme. The run found and
+    this fixed two real bugs: (1) the app rendered **dark for everyone** —
+    Tailwind v4 hoists `@theme` blocks to `:root` regardless of a `@media`
+    wrapper, so the dark palette must be a plain `:root` override; (2)
+    `--color-primary` (blue-600) failed AA as text on the `bg-primary/10`
+    active-nav tint (4.48:1) → moved to blue-700. Dark-mode contrast sweep is a
+    tracked follow-up (`docs/testing.md`).*
 
 ## Epic X.7 — UI states per surface
 
 The primitives are built in Epic 0.4b. These tasks apply them to the specific screens where
 the state is non-obvious or has product-specific behavior.
 
+Most of this epic landed inline as each feature screen was built (Phases 4–8, Epics X.1–X.5)
+— every list/detail screen goes through `<QueryBoundary>`, every mutation toasts. This pass
+(commit *Epic X.7*) closed the remaining gaps — the designed 404/403 pages, the template
+editor's own loading shape, the zero-line-items preview placeholder, dev state-forcing
+tooling — and produced the per-screen audit (`docs/ui-state-audit.md`, X.7.26). Decision
+`D31`.
+
 **Loading**
-- [ ] `X.7.1` (M) Skeletons for: client list, product list, invoice library, template gallery (thumbnail skeletons), dashboard history feed, admin tenant list
-- [ ] `X.7.2` (M) Template editor loading: preview area shows a page-shaped skeleton at correct paper proportions, controls panel disabled until config loads
-- [ ] `X.7.3` (M) PDF generation loading: this is the slowest action in the app — dedicated progress state on Download/Send buttons, with a message if it exceeds ~3s, and a timeout path
+- [x] `X.7.1` (M) Skeletons for: client list, product list, invoice library, template gallery (thumbnail skeletons), dashboard history feed, admin tenant list
+  - *Shape-matched skeletons via `<QueryBoundary loading>`: `SkeletonTable` (clients,
+    products, invoices), 3× `SkeletonCard` grid (templates), `SkeletonList` (dashboard
+    feed). Admin tenant list → deferred with the rest of the Phase 8 UI (backend only).*
+- [x] `X.7.2` (M) Template editor loading: preview area shows a page-shaped skeleton at correct paper proportions, controls panel disabled until config loads
+  - *New `SkeletonTemplateEditor` — a controls rail + a page-proportioned
+    `SkeletonInvoicePreview` laid out at the editor's real `lg` split, so loading an
+    existing template no longer shows a form skeleton that then jumps to the two-pane
+    editor. The controls only mount once the config has loaded.*
+- [x] `X.7.3` (M) PDF generation loading: this is the slowest action in the app — dedicated progress state on Download/Send buttons, with a message if it exceeds ~3s, and a timeout path
+  - *Shipped with 4.3: `InvoiceActions` puts Download/Send into `isLoading`, shows a
+    "downloading…/sending…" line, and a "still working" note once a 3s timer fires. The
+    timeout path is the `apiFetch` request timeout surfacing as a normal failure state
+    (X.7.14) — never a silent hang.*
 - [x] `X.7.4` (S) AI generation loading: Motion-animated state on the AI panel, with the ability to cancel
   - *Built with 7.2.2: the `AnimatePresence` loading panel carries a Cancel button
     that aborts the in-flight request via an `AbortController` on `apiFetch`'s
@@ -1188,43 +1379,137 @@ the state is non-obvious or has product-specific behavior.
     `getTransition`).*
 
 **Empty**
-- [ ] `X.7.5` (M) "Nothing yet" empty states with CTAs: no clients, no products, no templates, no invoices, no history — each with its own copy and primary action
-- [ ] `X.7.6` (M) "Nothing found" empty states: filtered invoice library, client search, product picker typeahead — each with a "Clear filters" action
-- [ ] `X.7.7` (S) Invoice with zero line items: preview shows a helpful placeholder rather than a broken-looking empty table
+- [x] `X.7.5` (M) "Nothing yet" empty states with CTAs: no clients, no products, no templates, no invoices, no history — each with its own copy and primary action
+  - *`<EmptyState variant="nothing-yet">` per-surface copy + CTA on clients, products,
+    invoices and the dashboard feed. Templates has no empty state on purpose — the seeded
+    default template can't be deleted, so the list is never empty.*
+- [x] `X.7.6` (M) "Nothing found" empty states: filtered invoice library, client search, product picker typeahead — each with a "Clear filters" action
+  - *`<EmptyState variant="nothing-found" onClearFilters>` on the invoice library, client
+    and product searches, and the dashboard feed, keyed on a `filtersActive` flag. The
+    pickers inside the invoice form show an inline "no matches" line with the query.*
+- [x] `X.7.7` (S) Invoice with zero line items: preview shows a helpful placeholder rather than a broken-looking empty table
+  - *`render/blocks.ts` emits one muted, centred placeholder row (`labels.lineItemsEmpty`,
+    EN/SQ/MK) spanning the table when `lineItems` is empty, instead of a bare `<tbody>`.
+    In the shared renderer so preview and PDF stay identical (D18); a saved invoice always
+    has ≥ 1 line, so the PDF path never hits it.*
 - [ ] `X.7.8` (S) Admin dashboard with no data yet (pre-launch/first users) doesn't render broken charts
+  - *Deferred: no admin UI yet (Phase 8 is backend only).*
 
 **Success**
-- [ ] `X.7.9` (M) Success feedback for: invoice saved, invoice duplicated, template saved, client/product created, settings saved, subscription activated, manual grant issued
-- [ ] `X.7.10` (M) **Send success** is its own confirmation state — shows recipient email and timestamp, since there's no delivery tracking afterward this is the user's only confirmation
-- [ ] `X.7.11` (S) Download success: subtle confirmation (browsers hide downloads, users need to know it worked)
+- [x] `X.7.9` (M) Success feedback for: invoice saved, invoice duplicated, template saved, client/product created, settings saved, subscription activated, manual grant issued
+  - *Toast system (0.4b.6) — every mutation across clients, products, templates, invoices,
+    settings and billing-return toasts on success. Manual grant → deferred (admin UI).*
+- [x] `X.7.10` (M) **Send success** is its own confirmation state — shows recipient email and timestamp, since there's no delivery tracking afterward this is the user's only confirmation
+  - *`InvoiceActions`: a persistent success card with recipient + `formatDateTime(sentAt)`,
+    separate from the transient toast; the button relabels to "Resend".*
+- [x] `X.7.11` (S) Download success: subtle confirmation (browsers hide downloads, users need to know it worked)
+  - *`InvoiceActions`: an inline "Downloaded" line with a check, plus a toast.*
 
 **Error**
-- [ ] `X.7.12` (M) Form validation errors on every form, inline, i18n'd, with correct field focus
-- [ ] `X.7.13` (M) Request failure states with retry on every list/detail surface
-- [ ] `X.7.14` (M) **PDF generation failure**: clear message, retry, and never leaves the user thinking their invoice was sent when it wasn't
-- [ ] `X.7.15` (M) **Email send failure**: explicitly distinguish "PDF made, email failed" — offer Download as fallback and retry send
-- [ ] `X.7.16` (M) Payment failure states: Stripe checkout failure, card declined, subscription lapsed
-- [ ] `X.7.17` (M) Limit-reached states as friendly gates, not errors: free tier invoice used, AI monthly limit hit, template locked — each with an upgrade path
-- [ ] `X.7.18` (S) AI failure: model unavailable or malformed output → clear message, generation counter **not** decremented
-- [ ] `X.7.19` (S) 404 and 403 pages, i18n'd, with navigation back
+- [x] `X.7.12` (M) Form validation errors on every form, inline, i18n'd, with correct field focus
+  - *`FormField` + `useZodForm` / `apply-field-errors` — Zod messages render inline under
+    the field, are i18n'd, and focus moves to the first invalid control on submit. Covers
+    auth, client, product, business profile, invoice and template-name forms.*
+- [x] `X.7.13` (M) Request failure states with retry on every list/detail surface
+  - *`<QueryBoundary>` renders `<ErrorState variant="inline">` with a retry bound to
+    `refetch` whenever a query errors with no data to fall back on — universal across
+    every list and detail screen.*
+- [x] `X.7.14` (M) **PDF generation failure**: clear message, retry, and never leaves the user thinking their invoice was sent when it wasn't
+  - *`InvoiceActions`: a download failure shows a distinct destructive line with retry and
+    never a success signal; the Send path's failure branch is separate (X.7.15).*
+- [x] `X.7.15` (M) **Email send failure**: explicitly distinguish "PDF made, email failed" — offer Download as fallback and retry send
+  - *`InvoiceActions`: a 502 from `/send` maps to a dedicated "PDF made, email failed" card
+    with **Download instead** + **Try again**; a non-502 failure is the generic send-error
+    line. The success toast never covers both steps.*
+- [x] `X.7.16` (M) Payment failure states: Stripe checkout failure, card declined, subscription lapsed
+  - *Pricing page: `checkout`/`portal` mutation errors → toast; `?checkout=cancelled` (the
+    return shape for a declined card on Stripe's hosted page) → info toast. Subscription
+    lapsed is handled by design (D23): Stripe dunning owns the past-due window, then
+    entitlements drop to FREE and the normal FREE gates / `UpgradeCallout`s apply — the web
+    entitlements schema deliberately doesn't surface `PAST_DUE`, so there's no extra banner.*
+- [x] `X.7.17` (M) Limit-reached states as friendly gates, not errors: free tier invoice used, AI monthly limit hit, template locked — each with an upgrade path
+  - *`UpgradeCallout` (free invoice used, in the create screen), the AI panel's
+    remaining-generations counter + gated CTA, and the templates page's locked "New
+    template" tooltip + upgrade banner — all framed as upgrade paths.*
+- [x] `X.7.18` (S) AI failure: model unavailable or malformed output → clear message, generation counter **not** decremented
+  - *Backend (7.1): a failed/malformed generation is logged to `AiGenerationLog` but does
+    not increment the `UsageCounter`. Web: `AiDraftPanel` shows `toUserMessage(error)`;
+    an AbortError (user cancel) is filtered out.*
+- [x] `X.7.19` (S) 404 and 403 pages, i18n'd, with navigation back
+  - *`RouteStatusPage` (`components/state/route-status-page.tsx`) — a shared 404/403 screen,
+    i18n'd (`routeStatus.*` in en/sq/mk), rendered inside the shell so nav stays usable,
+    with "Go back" (when there's history) + "Go to dashboard". Wired into the `*` route;
+    the 403 variant is ready for a permission surface (the FREE-tier template editor still
+    redirects to the list with an upsell — a friendlier gate, X.7.17).*
 
 **Partial / Imperfect**
-- [ ] `X.7.20` (M) Dashboard and admin overview: each metric/widget loads and fails independently — one broken query never blanks the page
-- [ ] `X.7.21` (M) **AI partial results**: model returns some fields confidently and leaves others blank → visually mark which fields were AI-filled vs. left for the user, prompt them to complete the gaps. This is the expected normal case, not an edge case.
-- [ ] `X.7.22` (M) Invoice referencing a deleted client or template: render gracefully with a clear notice and a fix action, never crash
-- [ ] `X.7.23` (S) Logo fails to load in preview/PDF: fall back to business name text, don't render a broken image
+- [x] `X.7.20` (M) Dashboard and admin overview: each metric/widget loads and fails independently — one broken query never blanks the page
+  - *The dashboard is a single activity-feed query (one surface), and its client-filter
+    dropdown degrades to "All clients" if its own query fails. Admin overview → deferred
+    (no admin UI). The general principle is enforced by `<QueryBoundary>` being per-query,
+    not per-page.*
+- [x] `X.7.21` (M) **AI partial results**: model returns some fields confidently and leaves others blank → visually mark which fields were AI-filled vs. left for the user, prompt them to complete the gaps. This is the expected normal case, not an edge case.
+  - *Shipped with 7.2: `AiFilledBadge` marks each AI-populated field; blanks are left for
+    the user and the panel copy prompts completion.*
+- [x] `X.7.22` (M) Invoice referencing a deleted client or template: render gracefully with a clear notice and a fix action, never crash
+  - *Template: `invoice.templateMissing` → an in-place notice on the detail screen, render
+    falls back to the default config. Client: soft delete (D4), and the invoice carries its
+    own denormalised client snapshot, so a deleted client still renders correctly — no
+    broken state to recover from.*
+- [x] `X.7.23` (S) Logo fails to load in preview/PDF: fall back to business name text, don't render a broken image
+  - *`render/blocks.ts`: no logo URL → a `doc-logo-fallback` text block with the business
+    name. A broken `<img>` carries `alt={business.name}`, which browsers render as text; the
+    preview iframe is `sandbox=""` (no JS) so an `onerror` swap isn't possible there, and
+    the server controls the asset on the PDF path.*
 - [ ] `X.7.24` (S) Partial CSV export (some rows failed): export what succeeded and report what didn't
-- [ ] `X.7.25` (S) Slow/stale data: use TanStack Query's `isFetching` to show a subtle refreshing indicator over existing data rather than replacing it with a skeleton (avoids flicker on refetch)
+  - *N/A for the current export: `exportInvoicesCsv` serialises plain denormalised columns
+    off each invoice row — no per-row sub-operation that can fail. The request wholly
+    succeeds or 500s. Revisit if an export ever gains per-row rendering.*
+- [x] `X.7.25` (S) Slow/stale data: use TanStack Query's `isFetching` to show a subtle refreshing indicator over existing data rather than replacing it with a skeleton (avoids flicker on refetch)
+  - *`<QueryBoundary>` renders a thin indeterminate bar on `isFetching` over the existing
+    data and dims a placeholder-data page swap to `opacity-60`.*
 
 **Verification**
-- [ ] `X.7.26` (M) State audit checklist per screen, reviewed before each milestone ships — every screen signed off on all five states
-- [ ] `X.7.27` (S) Test tooling to force each state in dev (network throttle, forced error, empty fixture) so states are actually testable, not theoretical
+- [x] `X.7.26` (M) State audit checklist per screen, reviewed before each milestone ships — every screen signed off on all five states
+  - *`docs/ui-state-audit.md` — every screen × 5 states with a verified column and
+    NA/deferred reasons. Re-run before each release.*
+- [x] `X.7.27` (S) Test tooling to force each state in dev (network throttle, forced error, empty fixture) so states are actually testable, not theoretical
+  - *`?force=loading|error|empty|refetching` on any URL in a dev build overrides that
+    screen's `<QueryBoundary>` (`components/state/force-state.ts`), optionally scoped
+    `?force=empty:invoices` by boundary `name`. Behind `import.meta.env.DEV`, documented on
+    the `/dev/states` gallery. The `<ErrorBoundary>` render-crash trigger and the
+    offline-toggle instructions already live in that gallery.*
 
 ## Epic X.6 — Marketing surface
-- [ ] `X.6.1` (M) Landing page: value prop, template showcase, pricing, CTA
-- [ ] `X.6.2` (S) GSAP scroll animations on landing (the one place complex sequencing is worth it)
-- [ ] `X.6.3` (S) SEO basics, meta tags, OG images
-- [ ] `X.6.4` (S) Trilingual landing page
+
+Shipped alongside the route restructure the user asked for (decision `D32`): the app
+moved from top-level paths to **`/` public marketing · `/console/*` signed-in app ·
+`/admin/*` admin center**. Every in-app link, redirect, guard, nav item and the e2e
+specs were repointed; `docs/route-map.md` is the reference.
+
+- [x] `X.6.1` (M) Landing page: value prop, template showcase, pricing, CTA
+  - *`routes/marketing/landing-page.tsx` — header (name + `<LanguageSwitcher>` + Log in /
+    Get started), hero with a live `<TemplateThumbnail>` of the default preset, a 4-up
+    feature strip, a 3-preset showcase (real shared-render thumbnails), a 3-tier pricing
+    grid driven by `PLAN_CATALOG`, and a closing CTA. `<AppFooter>` for the legal links.
+    Owns `/`; a signed-in visitor is `<Navigate>`d to `/console` (or `/admin`). Lazy-loaded
+    so its weight (incl. GSAP) is a separate 47 KB-gz chunk, never in the app bundle.*
+- [x] `X.6.2` (S) GSAP scroll animations on landing (the one place complex sequencing is worth it)
+  - *`gsap` + `ScrollTrigger`, registered in the landing module only. A `<Reveal>` wrapper
+    does a `gsap.from` fade/rise per section via `gsap.context()` (auto-cleanup on
+    unmount). `disabled` prop wired to `useReducedMotion()` — under
+    `prefers-reduced-motion` no GSAP runs at all and content renders static.*
+- [x] `X.6.3` (S) SEO basics, meta tags, OG images
+  - *`useLandingSeo()` sets `document.title` + `description` / `og:*` / `twitter:*` meta,
+    re-running on language change and cleaning up the tags it created on unmount.
+    `index.html` gained a static `<title>` + description + `theme-color`. **OG/Twitter
+    image artwork is a separate design task** — the tag points at `/og-image.png`; add the
+    asset (per-language optional) before launch.*
+- [x] `X.6.4` (S) Trilingual landing page
+  - *All copy through the app's react-i18next bundle (`landing.*` in `en`/`sq`/`mk`, gated
+    by `npm run i18n:check`). The shared `<LanguageSwitcher>` in the header switches
+    instantly and persists to `localStorage` pre-login; SEO meta + `<html lang>` follow.
+    SQ/MK are model-authored, flagged for native review with the rest of X.1.2.*
 
 ---
 

@@ -1,14 +1,10 @@
 import { Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
 import { cn } from '../../lib/cn';
 import { Button } from '../ui';
-
-/** TODO(X.1.1): placeholder copy, see decision D9. */
-const COPY = {
-  cta: 'See plans',
-} as const;
 
 export interface UpgradeCalloutProps {
   title: string;
@@ -33,9 +29,10 @@ export function UpgradeCallout({
   title,
   description,
   variant = 'banner',
-  ctaLabel = COPY.cta,
+  ctaLabel,
   className,
 }: UpgradeCalloutProps) {
+  const { t } = useTranslation();
   return (
     <div
       className={cn(
@@ -51,7 +48,7 @@ export function UpgradeCallout({
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
       <Button asChild size="sm" className="shrink-0">
-        <Link to="/pricing">{ctaLabel}</Link>
+        <Link to="/console/pricing">{ctaLabel ?? t('billing.seePlans')}</Link>
       </Button>
     </div>
   );

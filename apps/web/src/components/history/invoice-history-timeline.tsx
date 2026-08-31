@@ -1,9 +1,11 @@
 import type { InvoiceHistoryEventResponse } from '@invoice-saas/shared';
+import type { TFunction } from 'i18next';
 import { motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
 import { useInvoiceHistory } from '../../features/history/use-history';
-import { formatDateTime, formatRelativeTime } from '../../lib/format-time';
+import { useFormatters } from '../../i18n/format';
 import {
   getTransition,
   listContainerVariants,
@@ -15,14 +17,6 @@ import { QueryBoundary } from '../state/query-boundary';
 import { SkeletonList } from '../state/skeletons';
 import { counterpartLabel, describeEvent, EVENT_ICON } from './history-event-meta';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  heading: 'History',
-  emptyTitle: 'No activity yet',
-  emptyBody: 'Downloads, sends and edits will show up here.',
-  errorRetry: 'Try again',
-} as const;
-
 /**
  * The per-invoice history timeline (backlog 5.2.1), embedded in the invoice
  * detail view. Newest event first; entries stagger in on load (5.2.4) via the
@@ -33,11 +27,12 @@ const COPY = {
  * a background refetch, and the list itself.
  */
 export function InvoiceHistoryTimeline({ invoiceId }: { invoiceId: string }) {
+  const { t } = useTranslation();
   const query = useInvoiceHistory(invoiceId);
 
   return (
-    <section aria-label={COPY.heading} className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold text-foreground">{COPY.heading}</h2>
+    <section aria-label={t('history.timelineHeading')} className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold text-foreground">{t('history.timelineHeading')}</h2>
 
       <QueryBoundary
         query={query}
@@ -46,8 +41,8 @@ export function InvoiceHistoryTimeline({ invoiceId }: { invoiceId: string }) {
         empty={
           <EmptyState
             variant="nothing-yet"
-            title={COPY.emptyTitle}
-            description={COPY.emptyBody}
+            title={t('history.emptyTitle')}
+            description={t('history.emptyBody')}
             className="py-8"
           />
         }
@@ -60,7 +55,12 @@ export function InvoiceHistoryTimeline({ invoiceId }: { invoiceId: string }) {
             animate="animate"
           >
             {data.items.map((event, index) => (
-              <TimelineRow key={event.id} event={event} isLast={index === data.items.length - 1} />
+              <TimelineRow
+                key={event.id}
+                event={event}
+                isLast={index === data.items.length - 1}
+                t={t}
+              />
             ))}
           </motion.ul>
         )}
@@ -69,9 +69,18 @@ export function InvoiceHistoryTimeline({ invoiceId }: { invoiceId: string }) {
   );
 }
 
-function TimelineRow({ event, isLast }: { event: InvoiceHistoryEventResponse; isLast: boolean }) {
+function TimelineRow({
+  event,
+  isLast,
+  t,
+}: {
+  event: InvoiceHistoryEventResponse;
+  isLast: boolean;
+  t: TFunction;
+}) {
+  const { formatDateTime, formatRelativeTime } = useFormatters();
   const Icon = EVENT_ICON[event.eventType];
-  const { label, detail, counterpart } = describeEvent(event.eventType, event.metadata);
+  const { label, detail, counterpart } = describeEvent(event.eventType, event.metadata, t);
 
   return (
     <motion.li
@@ -94,10 +103,10 @@ function TimelineRow({ event, isLast }: { event: InvoiceHistoryEventResponse; is
             <span className="text-muted-foreground">
               {' '}
               <Link
-                to={`/invoices/${counterpart.id}`}
+                to={`/console/invoices/${counterpart.id}`}
                 className="rounded font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                {counterpartLabel(counterpart)}
+                {counterpartLabel(counterpart, t)}
               </Link>
             </span>
           )}

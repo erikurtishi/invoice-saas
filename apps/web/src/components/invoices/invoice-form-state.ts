@@ -26,14 +26,6 @@ export const SCRATCH = '__scratch__';
 
 export const PAPER_SIZES = ['A4', 'LETTER', 'LEGAL', 'A5'] as const;
 
-export const DOC_TYPE_LABELS: Record<DocumentType, string> = {
-  INVOICE: 'Invoice',
-  PROFORMA: 'Proforma',
-  QUOTE: 'Quote / Estimate',
-  CREDIT_NOTE: 'Credit note',
-  RECEIPT: 'Receipt',
-};
-
 export function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -49,7 +41,7 @@ export function initialHeader(profile: BusinessProfileResponse): HeaderState {
   const issueDate = todayIso();
   return {
     documentType: 'INVOICE',
-    language: profile.preferredLanguage,
+    language: profile.invoiceLanguage,
     currency: profile.defaultCurrency,
     paperSize: profile.defaultPaperSize,
     clientId: null,

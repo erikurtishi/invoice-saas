@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { AppFooter } from '../layout/app-footer';
+import { LanguageSwitcher } from '../layout/language-switcher';
 
 /**
  * Shared frame for the unauthenticated pages (login, signup, password reset,
  * verify email). No app shell — these render before there is a session — just a
- * centered card on a plain ground.
- *
- * TODO(X.1.1): product name and all copy passed in by callers is placeholder
- * English (decision D9).
+ * centered card on a plain ground. Carries the language switcher so a visitor can
+ * read these pages in their language before they have an account (X.1.4).
  */
 export function AuthCard({
   title,
@@ -19,24 +21,32 @@ export function AuthCard({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  const { t } = useTranslation();
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center bg-muted/30 px-4 py-12">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 text-center">
-          {/* TODO(X.1.1): real brand mark pending brand decisions. */}
-          <span className="text-base font-semibold">Invoice SaaS</span>
-        </div>
+    <div className="flex min-h-svh flex-col bg-muted/30">
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
+        <div className="w-full max-w-sm">
+          <div className="mb-6 text-center">
+            {/* Real brand mark pending brand decisions. */}
+            <span className="text-base font-semibold">{t('app.name')}</span>
+          </div>
 
-        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h1 className="text-lg font-semibold text-foreground">{title}</h1>
-          {subtitle != null && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
-          <div className="mt-5">{children}</div>
-        </div>
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+            {subtitle != null && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+            <div className="mt-5">{children}</div>
+          </div>
 
-        {footer != null && (
-          <p className="mt-4 text-center text-sm text-muted-foreground">{footer}</p>
-        )}
+          {footer != null && (
+            <p className="mt-4 text-center text-sm text-muted-foreground">{footer}</p>
+          )}
+
+          <div className="mt-6 flex justify-center">
+            <LanguageSwitcher className="w-40" />
+          </div>
+        </div>
       </div>
+      <AppFooter />
     </div>
   );
 }

@@ -4,68 +4,48 @@ import {
   INVOICE_EVENT_TYPES,
   type InvoiceEventType,
 } from '@invoice-saas/shared';
+import type { TFunction } from 'i18next';
+import { motion } from 'motion/react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
 import {
   counterpartLabel,
   describeEvent,
+  eventLabel,
   EVENT_FILTER_ALL,
   EVENT_ICON,
-  EVENT_LABEL,
 } from '../../components/history/history-event-meta';
 import { EmptyState } from '../../components/state/empty-state';
 import { QueryBoundary } from '../../components/state/query-boundary';
 import { SkeletonList } from '../../components/state/skeletons';
 import { Button, Input, Select } from '../../components/ui';
+import {
+  getTransition,
+  listContainerVariants,
+  listItemTransition,
+  listItemVariants,
+} from '../../lib/motion-presets';
 import { useClients } from '../../features/clients/use-clients';
 import { type ActivityListParams } from '../../features/history/history-api';
 import { useActivity } from '../../features/history/use-history';
-import { formatDateTime, formatRelativeTime } from '../../lib/format-time';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  title: 'Dashboard',
-  description: 'Everything that has happened across your invoices.',
-  filterAction: 'Action',
-  filterClient: 'Client',
-  filterFrom: 'From',
-  filterTo: 'To',
-  allActions: 'All activity',
-  allClients: 'All clients',
-  clearFilters: 'Clear filters',
-  nothingYetTitle: 'No activity yet',
-  nothingYetBody: 'Create and send your first invoice — its history shows up here.',
-  nothingYetCta: 'Go to invoices',
-  nothingFoundTitle: 'No activity matches those filters',
-  nothingFoundBody: 'Try a wider date range or a different action.',
-  deletedInvoice: 'a deleted invoice',
-  untitledInvoice: 'a draft',
-  pagePrev: 'Previous',
-  pageNext: 'Next',
-  pageStatus: (page: number, total: number) => `Page ${page} of ${total}`,
-} as const;
-
-const DOC_TYPE_LABELS: Record<DocumentType, string> = {
-  INVOICE: 'Invoice',
-  PROFORMA: 'Proforma',
-  QUOTE: 'Quote',
-  CREDIT_NOTE: 'Credit note',
-  RECEIPT: 'Receipt',
-};
+import { useFormatters } from '../../i18n/format';
 
 const CLIENT_FILTER_ALL = 'ALL';
+
+function docTypeLabel(docType: DocumentType, t: TFunction): string {
+  return t(`docTypes.${docType}`);
+}
 
 /**
  * The authenticated home screen — a global activity feed over the event log
  * (backlog 5.2.2), filterable by action type, client and issue-date range.
  * Standard five-states via `<QueryBoundary>`; the invoice library keeps its own
  * page at `/invoices`, which every row here links into.
- *
- * (The public marketing `/`, `/console/*` and `/admin/*` split is a separate,
- * later restructure — this stays mounted at `/` inside the app shell for now.)
  */
 export function DashboardPage() {
+  const { t } = useTranslation();
   const [eventType, setEventType] = useState<string>(EVENT_FILTER_ALL);
   const [clientId, setClientId] = useState<string>(CLIENT_FILTER_ALL);
   const [dateFrom, setDateFrom] = useState('');
@@ -74,7 +54,7 @@ export function DashboardPage() {
 
   const clientsQuery = useClients({ pageSize: 100, sort: 'name' });
   const clientOptions = [
-    { value: CLIENT_FILTER_ALL, label: COPY.allClients },
+    { value: CLIENT_FILTER_ALL, label: t('dashboard.allClients') },
     ...(clientsQuery.data?.items ?? []).map((c) => ({ value: c.id, label: c.name })),
   ];
 
@@ -105,16 +85,16 @@ export function DashboardPage() {
   return (
     <div className="mx-auto max-w-4xl">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold text-foreground">{COPY.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{COPY.description}</p>
+        <h1 className="text-xl font-semibold text-foreground">{t('dashboard.title')}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.description')}</p>
       </header>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Select
-          aria-label={COPY.filterAction}
+          aria-label={t('dashboard.filterAction')}
           options={[
-            { value: EVENT_FILTER_ALL, label: COPY.allActions },
-            ...INVOICE_EVENT_TYPES.map((t) => ({ value: t, label: EVENT_LABEL[t] })),
+            { value: EVENT_FILTER_ALL, label: t('dashboard.allActions') },
+            ...INVOICE_EVENT_TYPES.map((evt) => ({ value: evt, label: eventLabel(evt, t) })),
           ]}
           value={eventType}
           onValueChange={(v) => {
@@ -123,7 +103,7 @@ export function DashboardPage() {
           }}
         />
         <Select
-          aria-label={COPY.filterClient}
+          aria-label={t('dashboard.filterClient')}
           options={clientOptions}
           value={clientId}
           onValueChange={(v) => {
@@ -133,7 +113,7 @@ export function DashboardPage() {
         />
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground" htmlFor="act-from">
-            {COPY.filterFrom}
+            {t('dashboard.filterFrom')}
           </label>
           <Input
             id="act-from"
@@ -147,7 +127,7 @@ export function DashboardPage() {
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground" htmlFor="act-to">
-            {COPY.filterTo}
+            {t('dashboard.filterTo')}
           </label>
           <Input
             id="act-to"
@@ -162,6 +142,7 @@ export function DashboardPage() {
       </div>
 
       <QueryBoundary
+        name="dashboard"
         query={query}
         loading={<SkeletonList rows={10} />}
         isEmpty={(data) => data.total === 0}
@@ -169,18 +150,18 @@ export function DashboardPage() {
           filtersActive ? (
             <EmptyState
               variant="nothing-found"
-              title={COPY.nothingFoundTitle}
-              description={COPY.nothingFoundBody}
+              title={t('dashboard.nothingFoundTitle')}
+              description={t('dashboard.nothingFoundBody')}
               onClearFilters={clearFilters}
             />
           ) : (
             <EmptyState
               variant="nothing-yet"
-              title={COPY.nothingYetTitle}
-              description={COPY.nothingYetBody}
+              title={t('dashboard.nothingYetTitle')}
+              description={t('dashboard.nothingYetBody')}
               action={
                 <Button asChild>
-                  <Link to="/invoices">{COPY.nothingYetCta}</Link>
+                  <Link to="/console/invoices">{t('dashboard.nothingYetCta')}</Link>
                 </Button>
               }
             />
@@ -189,16 +170,21 @@ export function DashboardPage() {
       >
         {(data) => (
           <div className="flex flex-col gap-4">
-            <ul className="divide-y divide-border rounded-lg border border-border">
+            <motion.ul
+              className="divide-y divide-border rounded-lg border border-border"
+              variants={listContainerVariants}
+              initial="initial"
+              animate="animate"
+            >
               {data.items.map((item) => (
-                <ActivityRow key={item.id} item={item} />
+                <ActivityRow key={item.id} item={item} t={t} />
               ))}
-            </ul>
+            </motion.ul>
 
             {data.totalPages > 1 && (
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground" role="status">
-                  {COPY.pageStatus(data.page, data.totalPages)}
+                  {t('common.pageStatus', { page: data.page, total: data.totalPages })}
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -207,7 +193,7 @@ export function DashboardPage() {
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={data.page <= 1}
                   >
-                    {COPY.pagePrev}
+                    {t('common.previous')}
                   </Button>
                   <Button
                     variant="outline"
@@ -215,7 +201,7 @@ export function DashboardPage() {
                     onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))}
                     disabled={data.page >= data.totalPages}
                   >
-                    {COPY.pageNext}
+                    {t('common.next')}
                   </Button>
                 </div>
               </div>
@@ -227,15 +213,20 @@ export function DashboardPage() {
   );
 }
 
-function ActivityRow({ item }: { item: ActivityListItem }) {
+function ActivityRow({ item, t }: { item: ActivityListItem; t: TFunction }) {
+  const { formatDateTime, formatRelativeTime } = useFormatters();
   const Icon = EVENT_ICON[item.eventType];
-  const { label, detail, counterpart } = describeEvent(item.eventType, item.metadata);
+  const { label, detail, counterpart } = describeEvent(item.eventType, item.metadata, t);
 
-  const docLabel = DOC_TYPE_LABELS[item.invoiceDocumentType];
-  const invoiceName = item.invoiceNumber ?? COPY.untitledInvoice;
+  const docLabel = docTypeLabel(item.invoiceDocumentType, t);
+  const invoiceName = item.invoiceNumber ?? t('dashboard.untitledInvoice');
 
   return (
-    <li className="flex gap-3 px-4 py-3">
+    <motion.li
+      className="flex gap-3 px-4 py-3"
+      variants={listItemVariants}
+      transition={getTransition(listItemTransition)}
+    >
       <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-muted/40 text-muted-foreground">
         <Icon className="size-3.5" aria-hidden />
       </span>
@@ -248,21 +239,21 @@ function ActivityRow({ item }: { item: ActivityListItem }) {
             <span className="text-muted-foreground">
               {' '}
               <Link
-                to={`/invoices/${counterpart.id}`}
+                to={`/console/invoices/${counterpart.id}`}
                 className="rounded font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                {counterpartLabel(counterpart)}
+                {counterpartLabel(counterpart, t)}
               </Link>
             </span>
           )}
           <span className="text-muted-foreground"> · </span>
           {item.invoiceDeleted ? (
             <span className="text-muted-foreground">
-              {docLabel} {COPY.deletedInvoice}
+              {docLabel} {t('dashboard.deletedInvoice')}
             </span>
           ) : (
             <Link
-              to={`/invoices/${item.invoiceId}`}
+              to={`/console/invoices/${item.invoiceId}`}
               className="rounded font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {docLabel} {invoiceName}
@@ -276,6 +267,6 @@ function ActivityRow({ item }: { item: ActivityListItem }) {
           {formatRelativeTime(item.timestamp)}
         </p>
       </div>
-    </li>
+    </motion.li>
   );
 }

@@ -9,6 +9,12 @@ import { z } from 'zod';
  */
 const envSchema = z.object({
   VITE_API_URL: z.string().url().default('http://localhost:4000'),
+  /** Sentry browser DSN (backlog X.5.5). Optional — with no value the SDK is
+   *  never loaded and error reporting is a no-op. A DSN is not a secret. */
+  VITE_SENTRY_DSN: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().url().optional(),
+  ),
 });
 
 const parsed = envSchema.safeParse(import.meta.env);

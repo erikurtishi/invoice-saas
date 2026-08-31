@@ -11,44 +11,36 @@ import {
   type TemplateConfig,
   type TemplateVisibility,
 } from '@invoice-saas/shared';
+import type { TFunction } from 'i18next';
 import { AlignCenter, AlignLeft, AlignRight, Check } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../lib/cn';
 import { Input, Select, Switch } from '../ui';
 import { BlockOrderControl } from './block-order-control';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  layout: 'Layout',
-  paperSize: 'Paper size',
-  fontPairing: 'Font pairing',
-  accent: 'Accent colour',
-  accentCustom: 'Custom hex',
-  logo: 'Logo',
-  logoPosition: 'Position',
-  logoSize: 'Size',
-  columns: 'Line-item columns',
-  sections: 'Optional sections',
-  vis: {
-    unitPrice: 'Unit price',
-    taxColumn: 'Tax column',
-    discountColumn: 'Discount column',
-    notes: 'Notes',
-    bankDetails: 'Payment details',
-    signature: 'Signature line',
-    footer: 'Footer',
-  } satisfies Record<keyof TemplateVisibility, string>,
-} as const;
+const VIS_LABEL_KEY = {
+  unitPrice: 'template.visUnitPrice',
+  taxColumn: 'template.visTaxColumn',
+  discountColumn: 'template.visDiscountColumn',
+  notes: 'template.visNotes',
+  bankDetails: 'template.visBankDetails',
+  signature: 'template.visSignature',
+  footer: 'template.visFooter',
+} as const satisfies Record<keyof TemplateVisibility, string>;
 
-const PAPER_LABELS: Record<PaperSize, string> = {
-  A4: 'A4',
-  LETTER: 'US Letter',
-  LEGAL: 'Legal',
-  A5: 'A5',
-};
+function paperLabel(size: PaperSize, t: TFunction): string {
+  if (size === 'LETTER') return t('profile.paperLetter');
+  if (size === 'LEGAL') return t('profile.paperLegal');
+  return size;
+}
 
-const LOGO_SIZE_LABELS: Record<LogoSize, string> = { sm: 'Small', md: 'Medium', lg: 'Large' };
+const LOGO_SIZE_LABEL_KEY = {
+  sm: 'template.logoSizeSm',
+  md: 'template.logoSizeMd',
+  lg: 'template.logoSizeLg',
+} as const satisfies Record<LogoSize, string>;
 const LOGO_POSITION_ICON: Record<LogoPosition, typeof AlignLeft> = {
   left: AlignLeft,
   center: AlignCenter,
@@ -68,6 +60,7 @@ export interface EditorControlsProps {
  * one on every change — the parent owns the state and feeds the preview.
  */
 export function EditorControls({ config, onChange }: EditorControlsProps) {
+  const { t } = useTranslation();
   const set = <K extends keyof TemplateConfig>(key: K, value: TemplateConfig[K]) =>
     onChange({ ...config, [key]: value });
   const setVisibility = (key: keyof TemplateVisibility, value: boolean) =>
@@ -77,17 +70,17 @@ export function EditorControls({ config, onChange }: EditorControlsProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      <Section title={COPY.layout}>
-        <Field label={COPY.paperSize}>
+      <Section title={t('template.layout')}>
+        <Field label={t('template.paperSize')}>
           <Select
-            aria-label={COPY.paperSize}
-            options={PAPER_SIZES.map((s) => ({ value: s, label: PAPER_LABELS[s] }))}
+            aria-label={t('template.paperSize')}
+            options={PAPER_SIZES.map((s) => ({ value: s, label: paperLabel(s, t) }))}
             value={config.paperSize}
             onValueChange={(v) => set('paperSize', v as PaperSize)}
           />
         </Field>
 
-        <Field label={COPY.fontPairing}>
+        <Field label={t('template.fontPairing')}>
           <div className="flex flex-col gap-1">
             {FONT_PAIRINGS.map((pairing) => (
               <RadioRow
@@ -101,7 +94,7 @@ export function EditorControls({ config, onChange }: EditorControlsProps) {
         </Field>
       </Section>
 
-      <Section title={COPY.accent}>
+      <Section title={t('template.accent')}>
         <div className="flex flex-wrap gap-1.5">
           {TEMPLATE_ACCENT_PRESETS.map((hex) => (
             <button
@@ -123,13 +116,13 @@ export function EditorControls({ config, onChange }: EditorControlsProps) {
         <div className="flex items-center gap-2">
           <input
             type="color"
-            aria-label={COPY.accentCustom}
+            aria-label={t('template.accentCustom')}
             value={config.accentColor}
             onChange={(e) => set('accentColor', e.target.value)}
             className="h-8 w-10 cursor-pointer rounded border border-border bg-transparent p-0.5"
           />
           <Input
-            aria-label={COPY.accentCustom}
+            aria-label={t('template.accentCustom')}
             value={config.accentColor}
             spellCheck={false}
             onChange={(e) => {
@@ -141,8 +134,8 @@ export function EditorControls({ config, onChange }: EditorControlsProps) {
         </div>
       </Section>
 
-      <Section title={COPY.logo}>
-        <Field label={COPY.logoPosition}>
+      <Section title={t('template.logo')}>
+        <Field label={t('template.logoPosition')}>
           <Segmented
             options={LOGO_POSITIONS.map((p) => ({
               value: p,
@@ -153,38 +146,38 @@ export function EditorControls({ config, onChange }: EditorControlsProps) {
             onSelect={(v) => setLogo({ position: v as LogoPosition })}
           />
         </Field>
-        <Field label={COPY.logoSize}>
+        <Field label={t('template.logoSize')}>
           <Segmented
-            options={LOGO_SIZES.map((s) => ({ value: s, label: LOGO_SIZE_LABELS[s] }))}
+            options={LOGO_SIZES.map((s) => ({ value: s, label: t(LOGO_SIZE_LABEL_KEY[s]) }))}
             value={config.logo.size}
             onSelect={(v) => setLogo({ size: v as LogoSize })}
           />
         </Field>
       </Section>
 
-      <Section title={COPY.columns}>
+      <Section title={t('template.columns')}>
         <ToggleRow
-          label={COPY.vis.unitPrice}
+          label={t('template.visUnitPrice')}
           checked={config.visibility.unitPrice}
           onChange={(v) => setVisibility('unitPrice', v)}
         />
         <ToggleRow
-          label={COPY.vis.taxColumn}
+          label={t('template.visTaxColumn')}
           checked={config.visibility.taxColumn}
           onChange={(v) => setVisibility('taxColumn', v)}
         />
         <ToggleRow
-          label={COPY.vis.discountColumn}
+          label={t('template.visDiscountColumn')}
           checked={config.visibility.discountColumn}
           onChange={(v) => setVisibility('discountColumn', v)}
         />
       </Section>
 
-      <Section title={COPY.sections}>
+      <Section title={t('template.sections')}>
         {(['notes', 'bankDetails', 'signature', 'footer'] as const).map((key) => (
           <ToggleRow
             key={key}
-            label={COPY.vis[key]}
+            label={t(VIS_LABEL_KEY[key])}
             checked={config.visibility[key]}
             onChange={(v) => setVisibility(key, v)}
           />

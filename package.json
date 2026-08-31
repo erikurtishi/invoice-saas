@@ -22,12 +22,20 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
-    "pdf:smoke": "npm run pdf:smoke -w @invoice-saas/api"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "npm run test:e2e -w @invoice-saas/web",
+    "check:db": "npm run numbering:check -w @invoice-saas/api && npm run invoice:check -w @invoice-saas/api && npm run entitlements:check -w @invoice-saas/api && npm run history:check -w @invoice-saas/api && npm run security:check -w @invoice-saas/api && npm run render:check -w @invoice-saas/api",
+    "pdf:smoke": "npm run pdf:smoke -w @invoice-saas/api",
+    "i18n:check": "npm run i18n:check -w @invoice-saas/web"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-i18next": "^6.1.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.5",
     "globals": "^17.11.0",
@@ -35,6 +43,7 @@
     "lint-staged": "^16.4.0",
     "prettier": "^3.9.6",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.68.0"
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11"
   }
 }

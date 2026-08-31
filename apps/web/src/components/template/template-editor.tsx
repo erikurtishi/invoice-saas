@@ -2,6 +2,7 @@ import {
   DOCUMENT_TYPES,
   type DocumentType,
   type InvoiceRenderData,
+  LANGUAGE_ENDONYMS,
   PROFILE_LANGUAGES,
   type ProfileLanguage,
   sampleInvoiceData,
@@ -9,30 +10,12 @@ import {
 } from '@invoice-saas/shared';
 import { Maximize2, Minus, Plus } from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button, Select, Tabs, TabsContent, TabsList, TabsTrigger } from '../ui';
 import { EditorControls } from './editor-controls';
 import { InvoicePreview } from './invoice-preview';
 import { usePreviewZoom } from './use-preview-zoom';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  designTab: 'Design',
-  previewTab: 'Preview',
-  language: 'Preview language',
-  documentType: 'Preview type',
-  zoomIn: 'Zoom in',
-  zoomOut: 'Zoom out',
-  fit: 'Fit',
-} as const;
-
-const DOC_TYPE_LABELS: Record<DocumentType, string> = {
-  INVOICE: 'Invoice',
-  PROFORMA: 'Proforma',
-  QUOTE: 'Quote',
-  CREDIT_NOTE: 'Credit note',
-  RECEIPT: 'Receipt',
-};
 
 export interface TemplateEditorProps {
   config: TemplateConfig;
@@ -54,6 +37,7 @@ export interface TemplateEditorProps {
  * standalone (3.3 "New template") and inline in the invoice form (4.2.4).
  */
 export function TemplateEditor({ config, onChange, previewData, header }: TemplateEditorProps) {
+  const { t } = useTranslation();
   const [language, setLanguage] = useState<ProfileLanguage>('EN');
   const [documentType, setDocumentType] = useState<DocumentType>('INVOICE');
   const zoom = usePreviewZoom();
@@ -75,30 +59,35 @@ export function TemplateEditor({ config, onChange, previewData, header }: Templa
   const previewToolbar = (
     <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-3 py-2">
       <Select
-        aria-label={COPY.language}
+        aria-label={t('template.previewLanguage')}
         className="h-8 w-28 text-xs"
-        options={PROFILE_LANGUAGES.map((l) => ({ value: l, label: l }))}
+        options={PROFILE_LANGUAGES.map((l) => ({ value: l, label: LANGUAGE_ENDONYMS[l] }))}
         value={language}
         onValueChange={(v) => setLanguage(v as ProfileLanguage)}
       />
       <Select
-        aria-label={COPY.documentType}
+        aria-label={t('template.previewType')}
         className="h-8 w-36 text-xs"
-        options={DOCUMENT_TYPES.map((t) => ({ value: t, label: DOC_TYPE_LABELS[t] }))}
+        options={DOCUMENT_TYPES.map((dt) => ({ value: dt, label: t(`docTypes.${dt}`) }))}
         value={documentType}
         onValueChange={(v) => setDocumentType(v as DocumentType)}
       />
       <div className="ml-auto flex items-center gap-1">
-        <Button size="icon" variant="ghost" aria-label={COPY.zoomOut} onClick={zoom.zoomOut}>
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label={t('template.zoomOut')}
+          onClick={zoom.zoomOut}
+        >
           <Minus className="size-4" aria-hidden />
         </Button>
         <span className="w-12 text-center text-xs tabular-nums text-muted-foreground">
-          {zoom.zoom === 'fit' ? COPY.fit : `${Math.round(zoom.zoom * 100)}%`}
+          {zoom.zoom === 'fit' ? t('template.fit') : `${Math.round(zoom.zoom * 100)}%`}
         </span>
-        <Button size="icon" variant="ghost" aria-label={COPY.zoomIn} onClick={zoom.zoomIn}>
+        <Button size="icon" variant="ghost" aria-label={t('template.zoomIn')} onClick={zoom.zoomIn}>
           <Plus className="size-4" aria-hidden />
         </Button>
-        <Button size="icon" variant="ghost" aria-label={COPY.fit} onClick={zoom.fit}>
+        <Button size="icon" variant="ghost" aria-label={t('template.fit')} onClick={zoom.fit}>
           <Maximize2 className="size-4" aria-hidden />
         </Button>
       </div>
@@ -128,8 +117,8 @@ export function TemplateEditor({ config, onChange, previewData, header }: Templa
       <div className="flex min-h-0 flex-1 flex-col lg:hidden">
         <Tabs defaultValue="design" className="flex min-h-0 flex-1 flex-col">
           <TabsList className="mx-3 mt-3 self-start">
-            <TabsTrigger value="design">{COPY.designTab}</TabsTrigger>
-            <TabsTrigger value="preview">{COPY.previewTab}</TabsTrigger>
+            <TabsTrigger value="design">{t('template.designTab')}</TabsTrigger>
+            <TabsTrigger value="preview">{t('template.previewTab')}</TabsTrigger>
           </TabsList>
           <TabsContent value="design" className="mt-0 flex min-h-0 flex-1 flex-col">
             {controls}

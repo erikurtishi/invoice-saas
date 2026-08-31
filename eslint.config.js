@@ -3,6 +3,7 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
+import i18next from 'eslint-plugin-i18next';
 import prettier from 'eslint-config-prettier';
 import { defineConfig, globalIgnores } from 'eslint/config';
 
@@ -56,6 +57,28 @@ export default defineConfig([
     },
   },
 
+  // No hardcoded UI strings in the web app (CLAUDE.md / decision D9 / Epic X.1.1).
+  // `i18next/no-literal-string` in `jsx-text-only` mode flags user-visible text
+  // sitting between JSX tags that isn't routed through `t()` — the highest-signal
+  // check, and the one that keeps D9's convention from creeping back. Attribute
+  // copy (placeholder / aria-label / title …), toast text and Zod messages were
+  // converted alongside and are covered by review, not this rule (its broader
+  // modes false-positive on Radix `value=`, route `path=`, motion variant names).
+  // Scoped to `apps/web/src`; the i18n resource bundles and the dev-only state
+  // gallery are the places literal strings legitimately live.
+  {
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    ignores: [
+      'apps/web/src/i18n/resources/**',
+      'apps/web/src/routes/dev/**',
+      'apps/web/src/**/*.test.{ts,tsx}',
+    ],
+    plugins: { i18next },
+    rules: {
+      'i18next/no-literal-string': ['error', { mode: 'jsx-text-only' }],
+    },
+  },
+
   // Base component library (backlog 0.4.2): these files legitimately mix component
   // exports with re-exported Radix primitives (`export const X = Primitive.Root`)
   // and cva variant configs (`buttonVariants`). react-refresh/only-export-components
@@ -96,15 +119,25 @@ export default defineConfig([
     },
   },
 
-  // TypeScript check scripts (run with `tsx`, e.g. numbering-check.ts) live outside
-  // apps/api's `src` rootDir, so they are in no tsconfig. Lint them untyped rather
-  // than distort the build's file layout to include them.
+  // TypeScript check scripts (run with `tsx`, e.g. numbering-check.ts,
+  // web/scripts/i18n-check.ts), tool config files (vitest / playwright), Vitest
+  // setup files and the Playwright `e2e/` specs all live outside any app's `src`
+  // rootDir, so they are in no tsconfig. Lint them untyped rather than distort the
+  // build's file layout. The e2e specs also run `page.evaluate()` callbacks in a
+  // real browser, so they reference browser globals.
   {
-    files: ['apps/api/scripts/**/*.ts'],
+    files: [
+      'apps/api/scripts/**/*.ts',
+      'apps/web/scripts/**/*.ts',
+      '*.config.ts',
+      'apps/*/*.config.ts',
+      'apps/*/vitest.setup.ts',
+      'apps/web/e2e/**/*.ts',
+    ],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: {
       parserOptions: { projectService: false, project: false },
-      globals: globals.node,
+      globals: { ...globals.node, ...globals.browser },
     },
   },
 

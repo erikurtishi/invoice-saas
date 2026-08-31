@@ -1,4 +1,5 @@
 import { signupSchema, type SignupInput } from '@invoice-saas/shared';
+import { useTranslation } from 'react-i18next';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 
 import { AuthCard, AuthFormError } from '../../components/auth/auth-card';
@@ -10,34 +11,22 @@ import { HttpError } from '../../lib/http-error';
 import { toUserMessage } from '../../lib/error-message';
 import { useZodForm } from '../../lib/use-zod-form';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  title: 'Create your account',
-  subtitle: 'Start generating invoices in a few minutes.',
-  businessName: 'Business name',
-  email: 'Email',
-  password: 'Password',
-  passwordHint: 'At least 10 characters.',
-  submit: 'Create account',
-  haveAccount: 'Already have an account?',
-  logIn: 'Log in',
-} as const;
-
 export function SignupPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const session = useSession();
   const { mutateAsync, isPending, error } = useSignup();
 
   const form = useZodForm<SignupInput>(signupSchema);
 
-  if (session.data) return <Navigate to="/" replace />;
+  if (session.data) return <Navigate to="/console" replace />;
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
       await mutateAsync(values);
       // Signup logs the user straight in; the verify-email step happens from
       // inside the app via the banner (backlog 1.1.2, 1.2.4 onboarding).
-      void navigate('/', { replace: true });
+      void navigate('/console', { replace: true });
     } catch (err) {
       applyFieldErrors<SignupInput>(err, form.setError);
     }
@@ -47,13 +36,13 @@ export function SignupPage() {
 
   return (
     <AuthCard
-      title={COPY.title}
-      subtitle={COPY.subtitle}
+      title={t('auth.signupTitle')}
+      subtitle={t('auth.signupSubtitle')}
       footer={
         <>
-          {COPY.haveAccount}{' '}
+          {t('auth.haveAccount')}{' '}
           <Link to="/login" className="font-medium text-primary hover:underline">
-            {COPY.logIn}
+            {t('auth.logIn')}
           </Link>
         </>
       }
@@ -62,7 +51,7 @@ export function SignupPage() {
         {showBanner && <AuthFormError>{toUserMessage(error)}</AuthFormError>}
 
         <FormField
-          label={COPY.businessName}
+          label={t('auth.businessName')}
           required
           error={form.formState.errors.businessName?.message}
         >
@@ -77,7 +66,7 @@ export function SignupPage() {
           )}
         </FormField>
 
-        <FormField label={COPY.email} required error={form.formState.errors.email?.message}>
+        <FormField label={t('auth.email')} required error={form.formState.errors.email?.message}>
           {({ controlProps, invalid }) => (
             <Input
               {...controlProps}
@@ -90,9 +79,9 @@ export function SignupPage() {
         </FormField>
 
         <FormField
-          label={COPY.password}
+          label={t('auth.password')}
           required
-          hint={COPY.passwordHint}
+          hint={t('auth.passwordHint')}
           error={form.formState.errors.password?.message}
         >
           {({ controlProps, invalid }) => (
@@ -107,7 +96,7 @@ export function SignupPage() {
         </FormField>
 
         <Button type="submit" isLoading={isPending} className="w-full">
-          {COPY.submit}
+          {t('auth.signupSubmit')}
         </Button>
       </form>
     </AuthCard>

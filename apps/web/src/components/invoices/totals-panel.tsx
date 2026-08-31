@@ -6,21 +6,9 @@ import {
   minorToAmountString,
 } from '@invoice-saas/shared';
 
-import { cn } from '../../lib/cn';
+import { useTranslation } from 'react-i18next';
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  heading: 'Totals',
-  subtotal: 'Subtotal',
-  discount: 'Discount',
-  taxAt: (rate: string) => `Tax (${rate}%)`,
-  taxTotal: 'Tax',
-  grandTotal: 'Total',
-  amountDue: 'Amount due',
-  amountCredited: 'Amount credited',
-  serverNote: 'Totals are calculated on the server when you save.',
-  syncing: 'Recalculating…',
-} as const;
+import { cn } from '../../lib/cn';
 
 export interface TotalsPanelProps {
   totals: InvoiceTotalsResponse;
@@ -41,6 +29,7 @@ function money(minor: number, currency: string): string {
  * (`syncing`).
  */
 export function TotalsPanel({ totals, currency, documentType, syncing }: TotalsPanelProps) {
+  const { t } = useTranslation();
   const amountLine = DOCUMENT_TYPE_FIELDS[documentType].amountLine;
 
   return (
@@ -50,38 +39,51 @@ export function TotalsPanel({ totals, currency, documentType, syncing }: TotalsP
       aria-busy={syncing ?? false}
     >
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-foreground">{COPY.heading}</h2>
-        {syncing && <span className="text-xs text-muted-foreground">{COPY.syncing}</span>}
+        <h2 className="text-sm font-semibold text-foreground">{t('invoices.totalsHeading')}</h2>
+        {syncing && (
+          <span className="text-xs text-muted-foreground">{t('invoices.totalsSyncing')}</span>
+        )}
       </div>
 
       <dl className={cn('mt-3 space-y-1.5 text-sm', syncing && 'opacity-60')}>
-        <Row label={COPY.subtotal} value={money(totals.subtotalMinor, currency)} />
+        <Row label={t('invoices.subtotal')} value={money(totals.subtotalMinor, currency)} />
 
         {totals.discountTotalMinor > 0 && (
-          <Row label={COPY.discount} value={`− ${money(totals.discountTotalMinor, currency)}`} />
+          <Row
+            label={t('invoices.discount')}
+            value={`− ${money(totals.discountTotalMinor, currency)}`}
+          />
         )}
 
         {totals.taxLines.map((line) => (
           <Row
             key={line.rateBp}
-            label={COPY.taxAt(bpToPercentString(line.rateBp))}
+            label={t('invoices.taxAt', { rate: bpToPercentString(line.rateBp) })}
             value={money(line.taxMinor, currency)}
             muted
           />
         ))}
 
         {totals.taxLines.length !== 1 && totals.taxTotalMinor > 0 && (
-          <Row label={COPY.taxTotal} value={money(totals.taxTotalMinor, currency)} />
+          <Row label={t('invoices.taxTotal')} value={money(totals.taxTotalMinor, currency)} />
         )}
 
         <div className="!mt-3 border-t border-border pt-2">
-          <Row label={COPY.grandTotal} value={money(totals.grandTotalMinor, currency)} emphasis />
+          <Row
+            label={t('invoices.grandTotal')}
+            value={money(totals.grandTotalMinor, currency)}
+            emphasis
+          />
           {amountLine === 'amountDue' && (
-            <Row label={COPY.amountDue} value={money(totals.amountDueMinor, currency)} emphasis />
+            <Row
+              label={t('invoices.amountDue')}
+              value={money(totals.amountDueMinor, currency)}
+              emphasis
+            />
           )}
           {amountLine === 'amountCredited' && (
             <Row
-              label={COPY.amountCredited}
+              label={t('invoices.amountCredited')}
               value={money(totals.grandTotalMinor, currency)}
               emphasis
             />
@@ -89,7 +91,7 @@ export function TotalsPanel({ totals, currency, documentType, syncing }: TotalsP
         </div>
       </dl>
 
-      <p className="mt-3 text-xs text-muted-foreground">{COPY.serverNote}</p>
+      <p className="mt-3 text-xs text-muted-foreground">{t('invoices.totalsServerNote')}</p>
     </section>
   );
 }

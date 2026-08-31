@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AuthUser, BusinessProfileResponse } from '@invoice-saas/shared';
 
+import i18n, { toUiLanguageCode } from '../../i18n';
 import { HttpError } from '../../lib/http-error';
 import { authKeys } from '../auth/use-auth';
 import {
@@ -16,20 +17,21 @@ import {
  * state like any other — one query, read through `<QueryBoundary>`, mutations write
  * the fresh response straight back into the cache.
  *
- * A few profile fields (`businessName`, `preferredLanguage`) are also mirrored on
- * the cached auth session, so those mutations patch `authKeys.session` too and the
- * sidebar / banners update without a refetch.
+ * A few profile fields (`businessName`, `uiLanguage`, `invoiceLanguage`) are also
+ * mirrored on the cached auth session, so those mutations patch `authKeys.session`
+ * too and the sidebar / banners update without a refetch.
  */
 
 export const profileKeys = {
   profile: ['profile'] as const,
 };
 
-export function useBusinessProfile() {
+export function useBusinessProfile(options?: { enabled?: boolean }) {
   return useQuery<BusinessProfileResponse, HttpError>({
     queryKey: profileKeys.profile,
     queryFn: fetchBusinessProfile,
     staleTime: 60 * 1000,
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -49,8 +51,12 @@ export function useUpdateBusinessProfile() {
       patchSession(qc, (user) => ({
         ...user,
         businessName: profile.businessName,
-        preferredLanguage: profile.preferredLanguage,
+        uiLanguage: profile.uiLanguage,
+        invoiceLanguage: profile.invoiceLanguage,
       }));
+      // Settings is where the UI language is normally changed — apply it now so
+      // the whole app re-renders in the saved language without a reload.
+      void i18n.changeLanguage(toUiLanguageCode(profile.uiLanguage));
     },
   });
 }

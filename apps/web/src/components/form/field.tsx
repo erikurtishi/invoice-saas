@@ -1,4 +1,5 @@
 import { type ReactNode, useId } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../lib/cn';
 
@@ -41,9 +42,6 @@ export interface FormFieldProps {
   children: (args: { controlProps: FieldControlProps; invalid: boolean }) => ReactNode;
 }
 
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = { optional: 'optional' } as const;
-
 export function FormField({
   label,
   error,
@@ -53,6 +51,7 @@ export function FormField({
   badge,
   children,
 }: FormFieldProps) {
+  const { t } = useTranslation();
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
@@ -68,7 +67,7 @@ export function FormField({
           {label}
           {!required && (
             <span className="ml-1 text-xs font-normal text-muted-foreground">
-              ({COPY.optional})
+              ({t('common.optionalInline')})
             </span>
           )}
         </span>

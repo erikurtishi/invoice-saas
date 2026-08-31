@@ -72,6 +72,12 @@ export const listItemVariants: Variants = {
   animate: { opacity: 1, y: 0 },
 };
 
+// --- Switch thumb (X.3.2 toggle micro-interaction) --------------------------
+// A short spring on the knob so a toggle feels physical, not instantaneous.
+// `MotionConfig reducedMotion="user"` flattens it to an instant snap, so it needs
+// no `getTransition()` wrapper.
+export const switchThumbSpring: Transition = { type: 'spring', stiffness: 500, damping: 34 };
+
 // --- Toast enter/exit (used once the queue system lands in 0.4b.6) -----------
 
 export const toastTransition: Transition = { duration: 0.2, ease: EASE_OUT };

@@ -1,38 +1,14 @@
 import type { InvoiceInput, InvoiceResponse, InvoiceSendResponse } from '@invoice-saas/shared';
 import { AlertTriangle, CheckCircle2, Download, Mail } from 'lucide-react';
 import { useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useDownloadInvoicePdf, useSendInvoice } from '../../features/invoices/use-invoices';
+import { useFormatters } from '../../i18n/format';
 import { useToast } from '../../hooks/use-toast';
 import { toUserMessage } from '../../lib/error-message';
 import { HttpError } from '../../lib/http-error';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '../ui';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  download: 'Download',
-  send: 'Send',
-  resend: 'Send again',
-  downloading: 'Preparing PDF…',
-  sending: 'Sending…',
-  slow: 'Still working — this is the app’s slowest step and can take a few seconds.',
-  downloadedToast: 'PDF downloaded.',
-  downloaded: 'Downloaded.',
-  sentToast: (to: string) => `Invoice sent to ${to}.`,
-  downloadFailed: "Couldn't generate the PDF. Try again.",
-  sendFailed: "Couldn't send the invoice. Try again.",
-  noEmailTooltip: 'This client has no email address. Add one to send, or download instead.',
-  sentTitle: 'Sent',
-  sentDetail: (to: string, at: string) => `Emailed to ${to} · ${at}`,
-  emailFailedTitle: 'PDF ready, but the email didn’t send',
-  downloadInstead: 'Download instead',
-  tryAgain: 'Try again',
-} as const;
-
-function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
 
 type SendError = { kind: 'email-failed' | 'generic'; message: string };
 
@@ -55,6 +31,8 @@ export interface InvoiceActionsProps {
  * failed → download instead" branch (X.7.15).
  */
 export function InvoiceActions({ invoice, draft = null }: InvoiceActionsProps) {
+  const { t } = useTranslation();
+  const { formatDateTime } = useFormatters();
   const toast = useToast();
   const download = useDownloadInvoicePdf();
   const send = useSendInvoice();
@@ -78,9 +56,9 @@ export function InvoiceActions({ invoice, draft = null }: InvoiceActionsProps) {
     try {
       await download.mutateAsync({ id: invoice.id, draft });
       setDownloadedAt(Date.now());
-      toast.success(COPY.downloadedToast);
+      toast.success(t('invoices.downloadedToast'));
     } catch (err) {
-      setDownloadError(toUserMessage(err) || COPY.downloadFailed);
+      setDownloadError(toUserMessage(err) || t('invoices.downloadFailedRetry'));
     } finally {
       clearTimeout(timers.current.d);
       setDownloadSlow(false);
@@ -95,12 +73,12 @@ export function InvoiceActions({ invoice, draft = null }: InvoiceActionsProps) {
     try {
       const result = await send.mutateAsync({ id: invoice.id, draft });
       setSent(result);
-      toast.success(COPY.sentToast(result.recipient));
+      toast.success(t('invoices.sentToast', { recipient: result.recipient }));
     } catch (err) {
       if (err instanceof HttpError && err.status === 502) {
         setSendError({ kind: 'email-failed', message: err.message });
       } else {
-        setSendError({ kind: 'generic', message: toUserMessage(err) || COPY.sendFailed });
+        setSendError({ kind: 'generic', message: toUserMessage(err) || t('invoices.sendFailed') });
       }
     } finally {
       clearTimeout(timers.current.s);
@@ -117,7 +95,7 @@ export function InvoiceActions({ invoice, draft = null }: InvoiceActionsProps) {
       disabled={!canSend || send.isPending}
     >
       <Mail className="size-4" aria-hidden />
-      {sent ? COPY.resend : COPY.send}
+      {sent ? t('invoices.resend') : t('invoices.send')}
     </Button>
   );
 
@@ -131,7 +109,7 @@ export function InvoiceActions({ invoice, draft = null }: InvoiceActionsProps) {
           disabled={download.isPending}
         >
           <Download className="size-4" aria-hidden />
-          {COPY.download}
+          {t('invoices.download')}
         </Button>
 
         {canSend ? (
@@ -142,32 +120,32 @@ export function InvoiceActions({ invoice, draft = null }: InvoiceActionsProps) {
             <TooltipTrigger asChild>
               <span tabIndex={0}>{sendButton}</span>
             </TooltipTrigger>
-            <TooltipContent>{COPY.noEmailTooltip}</TooltipContent>
+            <TooltipContent>{t('invoices.noEmailTooltip')}</TooltipContent>
           </Tooltip>
         )}
       </div>
 
       {(download.isPending || send.isPending) && (downloadSlow || sendSlow) && (
         <p className="text-xs text-muted-foreground" role="status">
-          {COPY.slow}
+          {t('invoices.slow')}
         </p>
       )}
 
       {download.isPending && (
         <p className="text-xs text-muted-foreground" role="status">
-          {COPY.downloading}
+          {t('invoices.downloading')}
         </p>
       )}
       {send.isPending && (
         <p className="text-xs text-muted-foreground" role="status">
-          {COPY.sending}
+          {t('invoices.sending')}
         </p>
       )}
 
       {downloadedAt !== null && !download.isPending && !downloadError && (
         <p className="flex items-center gap-1.5 text-xs text-success" role="status">
           <CheckCircle2 className="size-3.5" aria-hidden />
-          {COPY.downloaded}
+          {t('invoices.downloaded')}
         </p>
       )}
 
@@ -185,10 +163,13 @@ export function InvoiceActions({ invoice, draft = null }: InvoiceActionsProps) {
         >
           <p className="flex items-center gap-1.5 font-medium">
             <CheckCircle2 className="size-4" aria-hidden />
-            {COPY.sentTitle}
+            {t('invoices.sentTitle')}
           </p>
           <p className="mt-0.5 text-xs">
-            {COPY.sentDetail(sent.recipient, formatWhen(sent.sentAt))}
+            {t('invoices.sentDetail', {
+              recipient: sent.recipient,
+              at: formatDateTime(sent.sentAt),
+            })}
           </p>
         </div>
       )}
@@ -200,15 +181,15 @@ export function InvoiceActions({ invoice, draft = null }: InvoiceActionsProps) {
         >
           <p className="flex items-center gap-1.5 font-medium">
             <AlertTriangle className="size-4" aria-hidden />
-            {COPY.emailFailedTitle}
+            {t('invoices.emailFailedTitle')}
           </p>
           <p className="mt-0.5 text-xs">{sendError.message}</p>
           <div className="mt-2 flex gap-2">
             <Button type="button" size="sm" variant="outline" onClick={() => void runDownload()}>
-              {COPY.downloadInstead}
+              {t('invoices.downloadInstead')}
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => void runSend()}>
-              {COPY.tryAgain}
+              {t('invoices.tryAgain')}
             </Button>
           </div>
         </div>

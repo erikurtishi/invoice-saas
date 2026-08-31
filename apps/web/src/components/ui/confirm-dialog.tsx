@@ -1,4 +1,5 @@
 import { type ReactNode, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from './button';
 import {
@@ -9,12 +10,6 @@ import {
   ModalHeader,
   ModalTitle,
 } from './modal';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  confirm: 'Confirm',
-  cancel: 'Cancel',
-} as const;
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -49,6 +44,7 @@ export function ConfirmDialog({
   destructive = false,
   onConfirm,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation();
   const [pending, setPending] = useState(false);
 
   const handleConfirm = () => {
@@ -78,7 +74,7 @@ export function ConfirmDialog({
             onClick={() => onOpenChange(false)}
             disabled={pending}
           >
-            {cancelLabel ?? COPY.cancel}
+            {cancelLabel ?? t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -86,7 +82,7 @@ export function ConfirmDialog({
             onClick={handleConfirm}
             isLoading={pending}
           >
-            {confirmLabel ?? COPY.confirm}
+            {confirmLabel ?? t('common.confirm')}
           </Button>
         </ModalFooter>
       </ModalContent>

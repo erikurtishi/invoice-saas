@@ -1,16 +1,8 @@
 import type { ClientResponse } from '@invoice-saas/shared';
+import { useTranslation } from 'react-i18next';
 
 import { Modal, ModalContent, ModalDescription, ModalHeader, ModalTitle } from '../ui';
 import { ClientForm } from './client-form';
-
-/** TODO(X.1.1): placeholder copy, see D9. */
-const COPY = {
-  createTitle: 'Add a client',
-  createDescription: 'Save a customer once and reuse them on any invoice.',
-  editTitle: 'Edit client',
-  editDescription:
-    'Changes apply to new invoices — invoices already created keep their saved details.',
-} as const;
 
 export interface ClientFormDialogProps {
   open: boolean;
@@ -29,15 +21,18 @@ export interface ClientFormDialogProps {
  * "New client" and row-edit; the Phase 4 invoice form reuses it verbatim.
  */
 export function ClientFormDialog({ open, onOpenChange, client, onSaved }: ClientFormDialogProps) {
+  const { t } = useTranslation();
   const isEdit = client !== undefined;
 
   return (
     <Modal open={open} onOpenChange={onOpenChange}>
       <ModalContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <ModalHeader>
-          <ModalTitle>{isEdit ? COPY.editTitle : COPY.createTitle}</ModalTitle>
+          <ModalTitle>
+            {isEdit ? t('clients.dialogEditTitle') : t('clients.dialogCreateTitle')}
+          </ModalTitle>
           <ModalDescription>
-            {isEdit ? COPY.editDescription : COPY.createDescription}
+            {isEdit ? t('clients.dialogEditDescription') : t('clients.dialogCreateDescription')}
           </ModalDescription>
         </ModalHeader>
         <ClientForm

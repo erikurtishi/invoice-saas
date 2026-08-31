@@ -148,6 +148,38 @@ export async function createPortalUrl(userId: string): Promise<string> {
   return session.url;
 }
 
+// --- account closure -------------------------------------------------
+
+/**
+ * Cancel every still-live Stripe subscription for a tenant, immediately (backlog
+ * X.4.4 — account deletion). No-op when card billing is not configured or the
+ * tenant never started checkout. Throws if Stripe is reachable but a cancel
+ * fails, so the caller aborts the deletion rather than orphan a paying
+ * subscription — the tenant can retry. Terminal-status subscriptions are left
+ * alone (cancelling a canceled sub is an error).
+ */
+export async function cancelAllSubscriptions(userId: string): Promise<number> {
+  if (!stripe) return 0;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { stripeCustomerId: true },
+  });
+  if (!user?.stripeCustomerId) return 0;
+
+  const { data } = await stripe.subscriptions.list({
+    customer: user.stripeCustomerId,
+    status: 'all',
+    limit: 100,
+  });
+  const live = data.filter(
+    (sub) => sub.status !== 'canceled' && sub.status !== 'incomplete_expired',
+  );
+  for (const sub of live) {
+    await stripe.subscriptions.cancel(sub.id);
+  }
+  return live.length;
+}
+
 // --- webhooks --------------------------------------------------------
 
 /** Verifies the Stripe signature and returns the parsed event (6.2.3). */
