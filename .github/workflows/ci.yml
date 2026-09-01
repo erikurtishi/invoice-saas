@@ -65,6 +65,10 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/invoice_saas_ci
       # Dummy — min 32 chars to satisfy config/env.ts. Not a real secret.
       JWT_ACCESS_SECRET: ci-only-insecure-jwt-secret-00000000000000
+      # The `secrets` context can't be used in a step `if:`; surface it as an env
+      # var here so the optional stripe:check step can gate on it. Empty unless the
+      # repo defines the secret (and always empty for fork PRs).
+      STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -91,9 +95,9 @@ jobs:
       - run: npm run support:check -w @invoice-saas/api
       # Real Stripe test-sandbox round-trip — opt-in, only with a configured key.
       - name: stripe:check (only when STRIPE_TEST_SECRET_KEY is set)
-        if: ${{ secrets.STRIPE_TEST_SECRET_KEY != '' }}
+        if: ${{ env.STRIPE_TEST_SECRET_KEY != '' }}
         env:
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          STRIPE_SECRET_KEY: ${{ env.STRIPE_TEST_SECRET_KEY }}
           # The check signs its own payloads — any whsec_ string works.
           STRIPE_WEBHOOK_SECRET: whsec_ci_selfsigned_dummy
         run: npm run stripe:check -w @invoice-saas/api
