@@ -1197,6 +1197,51 @@ library the Phase 8 backend notes already assumed.
 - Every admin metric/list stays its own TanStack Query behind `<QueryBoundary>`
   (`X.7.20`), so a slow or failing chart series never blanks the headline numbers.
 
+## D35 — Session strategy for launch: ratify `D12`, no changes (closes `1.1.1` / `L3.7.1`)
+
+**Decided:** the model in `D12` (15-min access JWT + 30-day rotating opaque refresh
+token, hashed at rest, reuse-detection, revoke on logout / password-reset / disable /
+delete) **is the launch answer. Nothing changes for launch.** The four questions
+`L3.7.1` left open are answered as follows:
+
+- **Idle timeout → keep the effective 30-day sliding window.** A refresh token's
+  `expiresAt` is fixed when it is issued, and every `POST /auth/refresh` mints a
+  fresh 30-day token — so a session used at least once every 30 days lives on, and
+  one untouched for 30 days is dead. That *is* the idle timeout. 30 days fits a B2B
+  invoicing cadence (many tenants invoice monthly); a shorter idle window would log
+  out legitimate monthly users. `JWT_ACCESS_TTL_SECONDS` (900) and `REFRESH_TTL_DAYS`
+  (30) stay env vars, so either can be tightened per-environment with no code change.
+
+- **Absolute maximum lifetime → adopt a 90-day cap, as a post-launch fast-follow
+  (not launch-blocking).** Today rotation extends a session indefinitely. A cap that
+  forces re-authentication 90 days after the *initial* login, regardless of activity,
+  bounds the one case reuse-detection misses — a stolen refresh cookie whose holder
+  rotates in lock-step with the victim and is never caught. Sketch: add
+  `RefreshToken.sessionStartedAt` (set to `now()` at login/signup, copied forward
+  unchanged on each rotation); in `rotateRefreshToken` return the normal
+  "session expired" 401 once `now - sessionStartedAt > 90d`. ~20 LOC + one migration
+  + a test. Launching without it is acceptable: the 15-min access token, rotation +
+  reuse-detection, and full server-side revocation already cover the realistic
+  threats, and the app stores invoices, not payment credentials or heavy PII.
+
+- **"Remember me" → no.** One 30-day window for everyone. A B2B tool is used almost
+  entirely from the user's own device; a per-login TTL toggle is a schema flag + UI
+  for little real gain, and `POST /auth/logout` plus the `httpOnly` cookie already
+  cover the shared-computer case. Revisit only if support signal shows kiosk usage.
+
+- **Concurrent-session cap → no.** Single-user tenants (`D3`) legitimately run
+  laptop + phone + tablet at once; a cap would break that. The better direction is
+  an **"active sessions" screen with per-device revoke** — `refresh_tokens.userAgent`
+  / `.ip` were added for exactly this (see the schema comment). Recorded as a
+  post-launch feature, not a v1 requirement.
+
+**Why ratify rather than harden now:** `D12`'s model is already stronger than a
+typical v1 (rotation, reuse-detection, hash-at-rest, short stateless access token,
+every revocation hook wired). The remaining gaps are defense-in-depth, and `L3` is
+about verifying the launch posture, not expanding it. The 90-day cap is the one
+change worth making early; it is written up above so it is a scoped follow-up, not
+a fresh investigation.
+
 ## Still open
 
 - **Nothing blocks `0.2.2` now.** Postgres is running locally and verified; the VPS

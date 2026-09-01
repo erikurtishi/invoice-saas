@@ -15,6 +15,13 @@ const envSchema = z.object({
     (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
     z.string().url().optional(),
   ),
+  /** Release identifier for Sentry (backlog L3.3.1). Optional; when set it tags
+   *  every browser event so an incident maps to a specific deploy. The build step
+   *  (V1.4.4) injects the shipped git SHA; unset in local dev. Not a secret. */
+  VITE_SENTRY_RELEASE: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().min(1).optional(),
+  ),
 });
 
 const parsed = envSchema.safeParse(import.meta.env);

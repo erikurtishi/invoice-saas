@@ -130,7 +130,10 @@ export function InvoiceFormFields({
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <div className="flex flex-col gap-5">
+      {/* min-w-0: below `lg` this is a single-column grid whose implicit track is
+          `minmax(auto,…)` — without it the preview's intrinsic page width (~794px)
+          forces the column, and the whole page, wider than a phone (L3.4). */}
+      <div className="flex min-w-0 flex-col gap-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField
             label={t('invoices.fieldDocType')}
@@ -379,7 +382,7 @@ export function InvoiceFormFields({
         />
       </div>
 
-      <div className="lg:sticky lg:top-4 lg:h-[calc(100dvh-6rem)]">
+      <div className="min-w-0 lg:sticky lg:top-4 lg:h-[calc(100dvh-6rem)]">
         <InvoicePreviewPanel
           value={payload}
           profile={profile}

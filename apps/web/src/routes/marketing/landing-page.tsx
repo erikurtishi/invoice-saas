@@ -189,9 +189,11 @@ export function LandingPage() {
                 className="flex flex-col gap-2 rounded-lg border border-border bg-card p-5"
               >
                 <Icon className="size-5 text-primary" aria-hidden />
-                <h3 className="text-sm font-semibold text-foreground">
+                {/* h2 (not h3): sits directly under the hero h1 with no section
+                    heading between — keeps the document outline gap-free (L3.5.2). */}
+                <h2 className="text-sm font-semibold text-foreground">
                   {t(`landing.feature_${key}_title`)}
-                </h3>
+                </h2>
                 <p className="text-sm text-muted-foreground">{t(`landing.feature_${key}_body`)}</p>
               </Reveal>
             ))}

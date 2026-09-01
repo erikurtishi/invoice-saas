@@ -6,6 +6,7 @@ import express from 'express';
 import helmet from 'helmet';
 
 import { env, isProduction, UPLOAD_URL_PATH, uploadDir } from './config/env.js';
+import { makeCorsOrigin } from './lib/cors-origin.js';
 import { initObservability } from './lib/observability.js';
 import { FONTS_DIR, FONTS_URL_PATH } from './lib/render-assets.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
@@ -64,7 +65,9 @@ app.use(
 
 // `credentials: true` — the refresh-token cookie is only sent/accepted on
 // credentialed requests, and the web app fetches with `credentials: 'include'`.
-app.use(cors({ origin: env.WEB_ORIGIN, credentials: true }));
+// Production: exactly `WEB_ORIGIN`. Development also allows a LAN IP / tunnel so a
+// real phone or tablet can hit this box (backlog L3.4.1) — see `makeCorsOrigin`.
+app.use(cors({ origin: makeCorsOrigin(env.WEB_ORIGIN), credentials: true }));
 app.use(requestLogger);
 
 // Blanket per-IP rate limit on every route (backlog X.4.6). Loose enough not to

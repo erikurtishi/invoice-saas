@@ -1,0 +1,8 @@
+# Invoice SaaS — crawl policy (backlog L3.5.2 / X.6 marketing surface).
+# The marketing pages are public and indexable; the app and admin center are
+# auth-only and have no SEO value.
+
+User-agent: *
+Allow: /
+Disallow: /console/
+Disallow: /admin/

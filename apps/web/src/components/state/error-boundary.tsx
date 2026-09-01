@@ -24,7 +24,8 @@ interface Props {
   fallbackRender: (props: ErrorFallbackProps) => ReactNode;
   /** Runs alongside the internal state reset — e.g. TanStack Query's `reset`. */
   onReset?: () => void;
-  /** Side-effect hook for logging/monitoring (X.5.5, Sentry later). */
+  /** Side-effect hook for logging/monitoring. Both mount points wire this to
+   *  `captureError()` (X.5.5 / L3.3.1); a boundary used without it just logs. */
   onError?: (error: Error, info: ErrorInfo) => void;
 }
 
@@ -43,7 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.props.onError) {
       this.props.onError(error, info);
     } else {
-      // TODO(X.5.5): forward to Sentry once error monitoring is wired up.
+      // No monitoring hook wired for this instance — log and move on.
       console.error('Unhandled render error:', error, info.componentStack);
     }
   }

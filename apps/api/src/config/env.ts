@@ -103,6 +103,13 @@ const envSchema = z.object({
   /** Fraction of transactions to trace, 0–1. Errors are always sent; this only
    *  gates performance sampling. Default 0 (errors only). */
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
+  /**
+   * Release identifier for Sentry (backlog L3.3.1). Optional; when set it tags
+   * every event so an incident can be tied to a specific deploy. The deploy step
+   * (V1.4.4) sets this to the git SHA it shipped; unset locally, where events are
+   * grouped by `environment` alone.
+   */
+  SENTRY_RELEASE: optionalEnv(z.string().min(1)),
 
   /**
    * Transactional email (backlog 4.3.4 / L1.1, Decision A — Resend). Optional:

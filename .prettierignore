@@ -5,6 +5,10 @@ coverage
 package-lock.json
 apps/web/public
 
+# Playwright's saved auth session (gitignored, machine-generated)
+apps/web/e2e/.auth
+**/e2e/.auth
+
 # Hand-authored product documents — Prettier would rewrite their tables and list
 # markers for no benefit. Keep them exactly as written.
 docs

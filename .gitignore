@@ -38,3 +38,5 @@ apps/api/var/
 apps/web/playwright-report/
 apps/web/test-results/
 apps/web/e2e/.auth/
+# stray dir if `playwright test` is run from the repo root instead of `-w @invoice-saas/web`
+/e2e/

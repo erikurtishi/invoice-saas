@@ -53,6 +53,10 @@ export default defineConfig({
       timeout: 120_000,
       stdout: 'pipe',
       stderr: 'pipe',
+      // Force the deterministic transports even if the developer's own .env has a
+      // real Resend / AI key — signup would otherwise 500 (Resend sandbox only
+      // sends to the account owner) and block the whole suite.
+      env: { RESEND_API_KEY: '', MAIL_FROM: '', AI_PROVIDER: '' },
     },
     {
       command: 'npm run dev',

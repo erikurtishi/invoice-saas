@@ -28,32 +28,41 @@ password manager).
 
 Nightly `pg_dump`, encrypted before it ever touches disk, then shipped off-box.
 
+The script is **`ops/invoice-backup.sh`** (in the repo, `shellcheck`-clean,
+`chmod +x`). It is fully env-driven so the same file runs on the VPS cron and
+locally for the dry-run / restore test — nothing to edit between environments:
+
 ```sh
-# /usr/local/bin/invoice-backup.sh   (chmod 0700, owned by the deploy user)
-set -euo pipefail
-STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-DEST=/var/backups/invoice-saas
-mkdir -p "$DEST"
+# on the VPS (cron): the real recipient, the real dest, ship off-box
+DATABASE_URL=…                       # app DB role, not superuser
+AGE_BACKUP_RECIPIENT=age1…            # public key; private key never on the box
+BACKUP_DEST=/var/backups/invoice-saas
+UPLOADS_TAR_BASE=/srv/invoice-saas/apps/api   # tars $UPLOADS_TAR_PATH (default var/uploads)
+BACKUP_REMOTE=r2:invoice-saas         # unset ⇒ rclone step is skipped
+BACKUP_RETAIN_DAYS=7
+PGDUMP=pg_dump                        # set to an absolute path where it's not on PATH
+```
 
-# --- database: dump | gzip | encrypt to age recipient, in one pipe (no plaintext on disk)
+Internally it is the same pipe as before — no plaintext on disk:
+
+```sh
 pg_dump --format=custom --no-owner --no-privileges "$DATABASE_URL" \
-  | gzip -9 \
-  | age -r "$AGE_BACKUP_RECIPIENT" -o "$DEST/db-$STAMP.sql.gz.age"
-
-# --- assets
-tar -C /srv/invoice-saas/apps/api -czf - var/uploads \
+  | gzip -9 | age -r "$AGE_BACKUP_RECIPIENT" -o "$DEST/db-$STAMP.sql.gz.age"
+tar -C "$UPLOADS_TAR_BASE" -czf - "$UPLOADS_TAR_PATH" \
   | age -r "$AGE_BACKUP_RECIPIENT" -o "$DEST/uploads-$STAMP.tar.gz.age"
-
-# --- ship off-box (object storage / a second host) and prune local copies
-rclone copy "$DEST" "$BACKUP_REMOTE:invoice-saas/" --immutable
-find "$DEST" -type f -mtime +7 -delete
+rclone copy "$DEST" "$BACKUP_REMOTE/" --immutable      # only when BACKUP_REMOTE is set
+find "$DEST" -type f -name '*.age' -mtime +"$BACKUP_RETAIN_DAYS" -delete
 ```
 
 - **Encryption:** [`age`](https://github.com/FiloSottile/age) with an asymmetric
   recipient. The private key lives **only** in the password manager and on the
   restore operator's laptop — never on the VPS. A stolen backup file is inert.
-- **Schedule:** `cron` at 03:15 UTC (`15 3 * * *`). Log to
-  `/var/log/invoice-backup.log`; alert on non-zero exit (§6).
+  Generate the keypair once with `age-keygen -o age-backup-key.txt`; the
+  `age1…` line it prints on stderr is `AGE_BACKUP_RECIPIENT`, the file is the
+  identity kept off-box.
+- **Schedule:** `cron` at 03:15 UTC (`15 3 * * *`) invoking
+  `ops/invoice-backup.sh`. Log to `/var/log/invoice-backup.log`; alert on
+  non-zero exit (§6).
 - **Retention:** 7 daily local, 30 daily + 12 monthly on the remote (lifecycle
   rule on the bucket, or `rclone` with `--backup-dir`). The remote bucket is
   write-once / versioned so a compromised VPS can't delete history.
@@ -64,14 +73,21 @@ find "$DEST" -type f -mtime +7 -delete
 ## 3. Restore test
 
 A backup that has never been restored is not a backup. Quarterly, and after any
-schema migration that isn't purely additive:
+schema migration that isn't purely additive. Use **`ops/invoice-restore.sh`**
+(repo, `shellcheck`-clean) — it wraps the same pipe and runs migrations after:
 
 ```sh
-age -d -i ~/age-backup-key.txt db-<stamp>.sql.gz.age | gunzip \
-  | pg_restore --clean --if-exists --no-owner -d "$STAGING_DATABASE_URL"
-npm run db:migrate:deploy -w @invoice-saas/api   # confirm migrations still apply
+AGE_IDENTITY_FILE=~/age-backup-key.txt \
+TARGET_DATABASE_URL="$STAGING_DATABASE_URL" \
+PGRESTORE=pg_restore \
+ops/invoice-restore.sh /path/to/db-<stamp>.sql.gz.age
+# it runs: age -d -i … | gunzip | pg_restore --clean --if-exists --no-owner -d …
+#          then DATABASE_URL=<target> npm run db:migrate:deploy -w @invoice-saas/api
 # smoke: log in, open the invoice list, download one PDF
 ```
+
+Restore **into a scratch/staging DB only** — `pg_restore --clean` drops objects
+it finds. The scratch DB must already exist (`createdb`).
 
 Record the date and result at the bottom of this file.
 
@@ -93,6 +109,8 @@ authority; keep this table in step with it.
 | `RESEND_API_KEY` | Transactional email (verification, reset, invoice send — L1.1 / Decision A) | Resend dashboard; roll on suspected leak |
 | `MAIL_FROM` | Not secret — the verified "from" address; required when `RESEND_API_KEY` is set | On sending-domain change (V1.5.3) |
 | `ANTHROPIC_API_KEY` / `AI_API_KEY` (per `AI_PROVIDER`, L1.2 / D25) | AI drafting — unset by default (`NullDrafter`) | Provider dashboard |
+| `SENTRY_DSN` (API) / `VITE_SENTRY_DSN` (web) | Error monitoring (X.5.5 / L3.3). Not secret — a DSN is a public ingest key. Unset ⇒ dark. Set at V1.6.1 | Sentry project settings; roll on suspected abuse |
+| `SENTRY_RELEASE` (API) / `VITE_SENTRY_RELEASE` (web) | Not secret — release tag on every event (L3.3.1). Deploy step sets it to the shipped git SHA (V1.4.4) | Every deploy |
 
 Rules:
 
@@ -139,4 +157,5 @@ hard rotation is tolerable:
 
 | Date (UTC) | Backup stamp | Result | Operator |
 | --- | --- | --- | --- |
-| _pending first VPS deploy_ | | | |
+| 2026-09-01 (**local**, L3.2.3) | `db-20260901T162853Z` | **Pass.** `ops/invoice-backup.sh` against local `invoice_saas` → age-encrypted `db-*.sql.gz.age` (29 KB) + `uploads-*.tar.gz.age` (10 KB), `rclone` step skipped. `ops/invoice-restore.sh` into a fresh `invoice_saas_restore_test`: `pg_restore` clean, `db:migrate:deploy` → "No pending migrations", all 30 users / 13 invoices / 17 clients / 12 templates / 16 migration rows present. App smoke off the restored DB: API boots, `/health` ok, login 200, `GET /invoices` 200, `POST /invoices/:id/pdf` → 200, valid 55 KB `%PDF-1.4`. Scratch DB dropped after. | local dev |
+| _pending first VPS deploy_ (V1.5.2) | | | |

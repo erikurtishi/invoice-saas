@@ -12,11 +12,22 @@ import { TooltipProvider } from './components/ui/tooltip.tsx';
 // Initialises i18next before the first render (Epic X.1.1). Side-effect import.
 import './i18n';
 import './index.css';
-import { initObservability } from './lib/observability.ts';
+import { captureError, initObservability } from './lib/observability.ts';
 import { queryClient } from './lib/query-client.ts';
 
 // Error monitoring (X.5.5) — no-op unless VITE_SENTRY_DSN is set.
 initObservability();
+
+// Dev-only deliberate-error trigger for the L3.3.1 verification: set
+// VITE_SENTRY_DSN (+ optionally VITE_SENTRY_RELEASE), run `npm run dev:web`, then
+// call `__sentryTestError()` from the browser console and confirm the event
+// lands in Sentry tagged with the environment + release. Tree-shaken from prod.
+if (import.meta.env.DEV) {
+  (window as unknown as { __sentryTestError?: () => void }).__sentryTestError = () => {
+    captureError(new Error('L3.3.1 web test error'), { trigger: 'manual' });
+    console.info('[sentry-check] captureError fired — check the Sentry issue stream');
+  };
+}
 
 const rootElement = document.getElementById('root');
 

@@ -15,6 +15,7 @@ import { useConsent } from './features/consent/use-consent';
 import { useSession } from './features/auth/use-auth';
 import { initAnalytics } from './lib/analytics';
 import { getTransition, pageTransition, pageVariants } from './lib/motion-presets';
+import { captureError } from './lib/observability';
 import { AdminShell } from './components/admin/admin-shell';
 import { AdminAuditLogPage } from './routes/admin/admin-audit-log-page';
 import { AdminGrantsPage } from './routes/admin/admin-grants-page';
@@ -105,6 +106,7 @@ function RoutedContent() {
     <ErrorBoundary
       key={location.pathname}
       onReset={reset}
+      onError={(error) => captureError(error, { boundary: 'route', path: location.pathname })}
       fallbackRender={({ error, reset: retry }) => (
         <ErrorState variant="page" error={error} onRetry={retry} className="my-8" />
       )}

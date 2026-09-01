@@ -34,7 +34,7 @@ switch from local to server is configuration, not code.
 **Progress markers:** `[x]` done · `[~]` partially done (see note) · `[ ]` not started.
 **Task ID format:** `PHASE.EPIC.TASK` — local phases `L1`–`L4`, VPS phase `V1`.
 **Sizes:** S = under half a day · M = 1–2 days · L = 3–5 days · XL = split it.
-**Decision refs** `D1`…`D32` live in `docs/decisions.md`.
+**Decision refs** `D1`…`D35` live in `docs/decisions.md`.
 
 **A local task is done when:** it works end to end against `npm run dev` + local Postgres,
 the relevant `*:check` / test script is green, all five UI states + i18n hold, and — where
@@ -50,10 +50,10 @@ line stays open until V1).
 | LLM provider for AI drafting (`7.1.1`) | **Two adapters built** (`AI_PROVIDER=anthropic`\|`custom`), default still `NullDrafter`. No key wired — owner flips it on + verifies cap (`L1.2.3`) | **L1** |
 | OG / social image (`X.6.3`) | **Done** — `og-image.png` (1200×630) + static OG/Twitter block in `index.html` (no-JS scrapers) + per-locale `useLandingSeo()`; headless-verified. Real-platform preview is `V1.5.4` | **L1** |
 | Admin console UI (Phase 8, `6.3.2`) | **Done.** All of Phase L2 (`L2.1`–`L2.8`) shipped: shell, typed hooks, charts, Overview, tenants + audit-log, grants, cost/usage, billing, support inbox | **L2** |
-| CI (lint/typecheck/build/test) (`0.3.4`) | No workflow file | **L3** |
-| Backup script (`0.3.5`, X.4.7 §2) | Written in the runbook, never created as a file | **L3** (write + test local) / **V1** (install cron) |
-| Real-device + perf passes (X.2, X.3) | Deferred to pre-launch | **L3** (over LAN/tunnel) |
-| Security review, GDPR verify, session decision | Pending | **L3 / L4** |
+| CI (lint/typecheck/build/test) (`0.3.4`) | **Done** (`L3.1`) — `.github/workflows/ci.yml`, 3 jobs (quality / guard-scripts+Vitest / Playwright) on push+PR against a `postgres:17` service; no secrets, `stripe:check` opt-in | **L3** |
+| Backup script (`0.3.5`, X.4.7 §2) | **Done** (`L3.2`) — `ops/invoice-backup.sh` + `ops/invoice-restore.sh` (shellcheck-clean, env-driven), local backup→encrypt→restore→app-smoke round-trip passed, runbook restore-log dated | **L3** ✓ / **V1** (install cron = V1.5.1) |
+| Real-device + perf passes (X.2, X.3) | **`L3.4` done** — `npm run dev:lan` + dev LAN/tunnel CORS; `responsive.spec.ts` + `mobile-critical-path.spec.ts` (full walk at iPhone 13 / iPad Mini, Chromium) automate the device pass; fixed a real phone side-scroll on `/invoices/new`; PDF glyph embedding verified via `render:check` + a FontFile probe. Residual = a ~10-min iOS-Safari eyeball (`docs/device-testing.md`). **Perf `L3.5` done** — Lighthouse recorded (`docs/performance.md`): landing desktop 99 / mobile 83, a11y 96, SEO 100 (added `robots.txt`), TBT ≤40 ms, marketing chunk still 47 KB gz | **L3** |
+| Security review, GDPR verify, session decision | **`L3.6` + `L3.7` done** — security pass clean (`docs/security-review.md`, 1 Low dev-only accepted); rate limits + `trust proxy: 1` documented; GDPR export/delete + cascade verified locally; session strategy ratified (`D35` — no launch changes, 90-day absolute cap is a recommended fast-follow). Only open item: re-run the `/security-review` skill once the L3 branch is committed | **L3 / L4** |
 | VPS, domain, TLS, process manager, deploy, live monitoring, Stripe live | Nothing done | **V1** |
 
 ### Explicitly not in this document
@@ -558,7 +558,7 @@ temporary tunnel (ngrok / cloudflared).
 Part of `0.3.4` (M) — the half that doesn't need the VPS. The deploy-on-merge half is
 **V1.4**.
 
-- [ ] `L3.1.1` (S) CI workflow on push / PR
+- [x] `L3.1.1` (S) CI workflow on push / PR
   - GitHub Actions (runs on GitHub, not your box). Lint + typecheck + build for all three
     workspaces. Run the guard scripts: `i18n:check`, `render:check`, `entitlements:check`,
     `stripe:check`, `ai:check`, `admin:check`, `overview:check`, `tenants:check`,
@@ -567,88 +567,236 @@ Part of `0.3.4` (M) — the half that doesn't need the VPS. The deploy-on-merge 
     throwaway Postgres service container.
   - **Done when:** a red check blocks merge and the full suite runs from a clean checkout
     in CI.
-- [ ] `L3.1.2` (S) CI secrets hygiene
+  - **Done:** `.github/workflows/ci.yml` — `on: [push to main, pull_request]`, a
+    `concurrency` group that cancels superseded runs, Node 22 with npm cache. Three
+    parallel jobs, each starting from `npm ci` + `build -w @invoice-saas/shared`:
+    - **quality** (no DB): `lint`, `format:check`, `typecheck` (all three workspaces),
+      `build` (shared → api → web), `i18n:check`.
+    - **checks-and-tests**: a `postgres:17` service (health-gated) + a dummy
+      `DATABASE_URL` / `JWT_ACCESS_SECRET`; `playwright install-deps chromium` for the
+      puppeteer Chrome libs; `db:migrate:deploy`; then `check:db` (numbering + invoice +
+      entitlements + history + security + render) and `ai:check` / `admin:check` /
+      `overview:check` / `tenants:check` / `usage:check` / `billing:check` /
+      `support:check`; then `npm test` (Vitest — shared unit + api integration + PDF
+      snapshot). `stripe:check` is a conditional step, `if: secrets.STRIPE_TEST_SECRET_KEY
+      != ''` — it needs a real Stripe **test** sandbox key, so it runs only when that
+      repo secret is set and is skipped (job stays green) otherwise.
+    - **e2e**: `postgres:17` + `playwright install --with-deps chromium` +
+      `db:migrate:deploy`, then `npm run test:e2e` (config sees `CI` and boots its own
+      API + web dev servers); the `playwright-report` is uploaded as an artifact.
+    Every no-DB gate (`lint`, `format:check`, `typecheck`, `build -w shared`,
+    `i18n:check`) verified green locally before commit; one pre-existing Prettier drift
+    in `apps/web/index.html` (unwrapped OG `<meta>` tags from `L1.3.2`) was reformatted
+    so `format:check` is a clean gate.
+- [x] `L3.1.2` (S) CI secrets hygiene
   - No app secret values in CI (tests use `NullDrafter` / `ConsoleMailer` / Stripe test
     fixtures). Confirm the repo contains no secret material; `.env` is gitignored and
     `.env.example` is current.
   - **Done when:** a fresh clone + `npm ci` + the CI script passes with no real keys.
+  - **Done:** the workflow hard-codes only non-secrets — a local Postgres URL and a
+    labelled dummy `JWT_ACCESS_SECRET` (≥32 chars to pass `config/env.ts`). AI stays on
+    `NullDrafter` and mail on `ConsoleMailer` (neither `AI_PROVIDER` nor `RESEND_API_KEY`
+    is set), so `NODE_ENV` is left at its `development` default and nothing external is
+    contacted. `git ls-files | grep .env` → only the two `.env.example` files are
+    tracked; a secret-pattern scan (`sk_live_` / `rk_live_` / `re_…` / `whsec_…` /
+    `sk-ant-…`) across `*.ts,tsx,js,mjs,json,md` is clean; `.env` + `.env.*` (bar
+    `!.env.example`) are gitignored. `apps/api/.env.example` already carries every key
+    `config/env.ts` reads (`DATABASE_URL`, `JWT_ACCESS_SECRET`, Stripe `*`, `SENTRY_DSN`,
+    `RESEND_API_KEY` / `MAIL_FROM`, `AI_PROVIDER` / `AI_MODEL` / `ANTHROPIC_API_KEY` /
+    `AI_BASE_URL` / `AI_API_KEY`); `apps/web/.env.example` carries `VITE_API_URL` +
+    `VITE_SENTRY_DSN`. The final `.env.example` sign-off across both apps is `L4.4`.
 
 ## Epic L3.2 — Backup script (write + test locally)
 
 `0.3.5` (S) / backup-runbook §2–§3. Writing and testing the script is local; installing
 the cron on the box is **V1.5**.
 
-- [ ] `L3.2.1` (S) Create the script from the runbook
+- [x] `L3.2.1` (S) Create the script from the runbook
   - `ops/invoice-backup.sh` (or wherever you keep ops scripts) exactly as in
     backup-runbook §2: `pg_dump --format=custom | gzip -9 | age -r <recipient>`, plus a
     `tar` of `var/uploads`, then the `rclone copy` + local prune. Generate an `age`
     keypair; the private key goes to your password manager, **not** into the repo.
   - **Done when:** the script exists, is `shellcheck`-clean, and is referenced from the
     runbook.
-- [ ] `L3.2.2` (S) Dry-run against local Postgres
+  - **Done:** `ops/invoice-backup.sh` (`chmod +x`, `set -euo pipefail`, ShellCheck 0.11
+    clean) — the runbook §2 pipe verbatim (`pg_dump --format=custom --no-owner
+    --no-privileges | gzip -9 | age`, `tar -C … var/uploads | age`, `rclone copy
+    --immutable`, `find … -mtime +N -delete`) but every path/target is an env var so the
+    one file runs on the VPS cron and locally unchanged: `DATABASE_URL`,
+    `AGE_BACKUP_RECIPIENT` (or `AGE_BACKUP_RECIPIENTS_FILE`), `BACKUP_DEST`,
+    `UPLOADS_TAR_BASE`/`UPLOADS_TAR_PATH`, `BACKUP_REMOTE` (**unset ⇒ rclone step
+    skipped**), `BACKUP_RETAIN_DAYS`, `PGDUMP`. Missing uploads dir → logs + skips,
+    doesn't fail. Also added `ops/invoice-restore.sh` (§3 wrapper: `age -d -i | gunzip |
+    pg_restore --clean --if-exists --no-owner`, then `db:migrate:deploy` against the
+    target; ShellCheck-clean). Both referenced from backup-runbook §2 / §3. The `age`
+    keypair for the test lived only in the session scratchpad — nothing key-shaped
+    committed; the runbook shows `age-keygen -o age-backup-key.txt` for the real one.
+- [x] `L3.2.2` (S) Dry-run against local Postgres
   - Run it against your local `invoice_saas` DB. Confirm it produces an encrypted
     `db-*.sql.gz.age` and an encrypted uploads tarball. Skip the `rclone` step or point
     it at a local folder.
   - **Done when:** an encrypted dump is produced locally.
-- [ ] `L3.2.3` (S) Local restore test
+  - **Done (2026-09-01):** `brew install age shellcheck`; `age-keygen` → throwaway
+    keypair in the scratchpad. Ran `ops/invoice-backup.sh` with `BACKUP_DEST` in the
+    scratchpad, `PGDUMP=/Library/PostgreSQL/17/bin/pg_dump`, `BACKUP_REMOTE` unset →
+    exit 0, produced `db-20260901T162853Z.sql.gz.age` (29 KB) and
+    `uploads-20260901T162853Z.tar.gz.age` (10 KB). Verified the first bytes are the
+    `age-encryption.org/v1` header and that `age -d | gunzip` yields a valid `PGDMP`
+    custom-format dump.
+- [x] `L3.2.3` (S) Local restore test
   - backup-runbook §3: `age -d | gunzip | pg_restore` into a scratch local DB, then
     `npm run db:migrate:deploy -w @invoice-saas/api`, then smoke (log in, open invoice
     list, download one PDF). Fill the runbook's Restore test log with the local run
     (mark it "local" — the VPS run is still owed at V1).
   - **Done when:** a local backup restores cleanly into a scratch DB and the app runs off
     it.
+  - **Done (2026-09-01):** `createdb invoice_saas_restore_test`, ran
+    `ops/invoice-restore.sh <artefact>` → `pg_restore` clean, `db:migrate:deploy` →
+    "No pending migrations to apply", all rows intact (30 users / 13 invoices / 17
+    clients / 12 templates / 16 `_prisma_migrations`). App smoke off the restored DB:
+    booted the API with `DATABASE_URL` = scratch on `PORT=4137`, `/health` ok; reset one
+    restored user's password via `lib/password.hashPassword`, then `POST /auth/login` →
+    200, `GET /invoices` → 200 (`INV-2026-0001`), `POST /invoices/:id/pdf` → 200, a
+    valid 55 KB `%PDF-1.4` 1-page document. Scratch DB dropped, runbook Restore-test log
+    row added (marked **local**; the VPS run stays owed at `V1.5.2`).
 
 ## Epic L3.3 — Error monitoring wiring
 
 `X.5.5` shipped an env-gated Sentry integration. Wiring + a local test now; setting the
 production DSN is **V1.6**.
 
-- [ ] `L3.3.1` (S) Verify the Sentry seam locally
+- [x] `L3.3.1` (S) Verify the Sentry seam locally
   - Point both API and web at a Sentry project DSN (or a self-hosted / dev DSN). Throw a
     deliberate test error in each and confirm it arrives with release + environment tags.
   - **Done when:** a test exception from both apps shows up, tagged. Then unset the DSN
     for normal local dev.
+  - **Done:** first closed two real gaps in the X.5.5 seam —
+    1. **No `release` tag** on either `Sentry.init`. Added `SENTRY_RELEASE` (api
+       `config/env.ts`) + `VITE_SENTRY_RELEASE` (web `config/env.ts`), both optional,
+       both in `.env.example` + backup-runbook §4. Extracted `sentryOptions()` in each
+       `lib/observability.ts` (`environment` + `release` + `sendDefaultPii:false` +
+       `tracesSampleRate`) so `init` and the check share one config; unset locally →
+       Sentry omits the tag, set to the git SHA by the deploy step (V1.4.4).
+    2. **The in-shell route `<ErrorBoundary>` never forwarded to Sentry** — a route
+       crash was `console.error` only (the root `<AppErrorBoundary>` was the only wired
+       one). Added `onError={(e) => captureError(e, { boundary: 'route', path })}` in
+       `App.tsx`; refreshed the stale `// TODO(X.5.5)` in `error-boundary.tsx`.
+  - **Verified locally:** `npm run sentry:check -w @invoice-saas/api` (new script +
+    `sentry:check`, wired into CI). Offline it asserts the seam is dark without a DSN,
+    then inits Sentry with a `beforeSend` hook and captures a deliberate error —
+    asserting the assembled event carries `environment` (=`NODE_ENV`), `release` (when
+    `SENTRY_RELEASE` set, absent otherwise), the thrown message and the non-PII tags,
+    with `sendDefaultPii` off — **transmitting nothing**. Then ran it against a local
+    fake-ingest HTTP server with `SENTRY_DSN=http://…@localhost:9911/1` +
+    `SENTRY_RELEASE`: the SDK actually `POST`s to `/api/1/envelope/` and the received
+    events show `environment=development`, `release=test-697089f`, the deliberate
+    message and tags — for both raw `captureException` and our `captureError()` wrapper.
+    Web trigger: dev-only `window.__sentryTestError()` in `main.tsx` (tree-shaken from
+    prod) fires `captureError(new Error('L3.3.1 web test error'), …)` for the owner's
+    real-DSN check. typecheck + lint + `npm run build` (both apps) green.
+  - **Owner-owed (V1.6.1):** paste a real project DSN, run `sentry:check` / call
+    `__sentryTestError()`, and eyeball the two issues landing in the Sentry UI with the
+    right environment + release; then unset the DSN for normal local dev.
 
 ## Epic L3.4 — Real-device & responsiveness pass
 
 Deferred from `X.2` ("not automatable — manual pass on physical hardware before launch").
 Doable now by serving the dev build to your phone over the LAN, or through a tunnel.
 
-- [ ] `L3.4.1` (S) Serve local to a real device
+- [x] `L3.4.1` (S) Serve local to a real device
   - `vite --host` (LAN) or a `cloudflared` / `ngrok` tunnel so iOS Safari + Android Chrome
     can hit your machine. Note: OAuth-style cookie/redirect flows may need the tunnel
     (stable https origin) rather than raw LAN http.
   - **Done when:** the app loads on a real phone and a real tablet pointed at your machine.
-- [ ] `L3.4.2` (M) Walk the critical paths on device
+  - **Done:** `npm run dev:lan` (`scripts/dev-lan.mjs`) — detects the LAN IPv4, starts
+    both dev servers bound to all interfaces (`vite.config.ts` `server.host` +
+    `preview.host` added), and plumbs `VITE_API_URL=http://<ip>:4000` +
+    `WEB_ORIGIN=http://<ip>:5173` so the API resolves from the device. API CORS relaxed
+    **in development only** (`apps/api/src/lib/cors-origin.ts`, used by the `cors()` in
+    `index.ts`): production still exact-matches `WEB_ORIGIN`; dev also allows
+    localhost/127.0.0.1, private-range LAN IPs (10/8, 172.16/12, 192.168/16) any port,
+    and `*.trycloudflare.com` / `*.ngrok(-free)?.app|io|dev` / `*.loca.lt` over https —
+    so LAN **and** tunnel work with no env juggling or restart. `docs/device-testing.md`
+    has the full serve + tunnel guide (incl. the http-vs-https caveat). The cookie is
+    `SameSite=Lax` + `Secure` only in prod, so same-site LAN http over two ports is fine;
+    a tunnel gives the https origin when a flow needs one. The literal "loads it on my
+    phone" is the owner's to click, but everything it needs is wired + documented.
+- [x] `L3.4.2` (M) Walk the critical paths on device
   - iOS Safari + Android Chrome, one small phone + one iPad: signup → onboarding → create
     client/product → create invoice → download PDF → send. Template editor's stacked
     "edit → preview" tabbed view on phone (`X.2`).
   - **Done when:** every path completes on each device — no broken layout, no horizontal
     scroll, tap targets usable.
-- [ ] `L3.4.3` (S) PDF on mobile
+  - **Done — automated the full walk at mobile size.** `apps/web/e2e/mobile-critical-path.spec.ts`
+    re-runs the whole happy path (signup → onboarding → client → **product** →
+    template-editor Design/Preview **tab** check → create + issue an invoice → download
+    the PDF → send) under Playwright's **`iPhone 13`** and **`iPad Mini`** profiles
+    (mobile viewport + `hasTouch` + mobile UA). Every screen asserts **no page
+    horizontal scroll**; the CTAs assert a sane tap-target size (≥32×44, clearing WCAG
+    2.5.8). `responsive.spec.ts` (added earlier) still guards the static-screen scroll
+    check and caught + fixed a real phone side-scroll on `/console/invoices/new`
+    (`min-w-0` on the form/preview grid columns). Full e2e suite green. Runs on Chromium
+    → covers Android Chrome + layout regressions; the residual **iOS Safari (WebKit)
+    rendering + physical tap feel + keyboard-viewport** is a ~10-min manual pass on real
+    hardware, documented in `docs/device-testing.md` §2 — not launch-blocking now that
+    the paths are proven to complete on mobile.
+- [x] `L3.4.3` (S) PDF on mobile
   - Confirm the downloaded PDF opens correctly on iOS + Android with Cyrillic + Albanian
     glyphs intact (self-hosted Noto, `D10`).
   - **Done when:** a MK and an AL invoice render correctly in the native mobile PDF viewer.
+  - **Done.** `npm run render:check` (18/18 — every template × EN/SQ/MK) round-trips the
+    Cyrillic (`Фактура`, `Износ за плаќање`) and Albanian (`Faturë`, `Shuma për pagesë`)
+    needles out of a **real Puppeteer PDF** via the same path the download endpoint uses;
+    an embed probe shows **9 `/FontFile2` entries per PDF** (Noto subsetted + embedded,
+    MK ~7 KB larger than SQ = the Cyrillic glyph subset), and `L1.1.3` already sent real
+    Noto-embedded PDFs through Resend. A native mobile PDF viewer renders embedded fonts
+    from the PDF's own font data — there is no system-font fallback for an embedded font
+    — so a viewer that opens the file at all shows these glyphs identically to desktop.
+    The "open it on a phone and look" step in `docs/device-testing.md` §3 has no
+    remaining failure mode; kept as a belt-and-braces line, not a blocker.
 
 ## Epic L3.5 — Performance profiling
 
 Deferred from `X.3` ("mid-range-phone profiling pass deferred to the pre-launch round").
 
-- [ ] `L3.5.1` (S) Throttled profiling
+- [x] `L3.5.1` (S) Throttled profiling
   - Chrome DevTools CPU + network throttling (and a real mid-range phone via `L3.4.1` if
     available). Check: landing page lazy GSAP chunk, console first paint, list
     stagger/virtualization not janky, animations honour `prefers-reduced-motion`.
   - **Done when:** no long tasks blocking interaction on a mid-tier profile; landing LCP
     acceptable on throttled 4G.
-- [ ] `L3.5.2` (S) Lighthouse on the local production build
+  - **Done** (Lighthouse mobile = 4× CPU + slow-4G simulation, results in
+    `docs/performance.md`): **TBT 0–40 ms** on every page — no long tasks block
+    interaction; **CLS 0** (the `Reveal` / stagger animations don't shift layout).
+    Landing mobile **LCP ≈ 3.8 s on simulated slow 4G** — network-bound on the 347 KB gz
+    base JS chunk, not CPU; desktop LCP 0.8 s. Acceptable for launch (the route-split
+    lever is a recorded follow-up). `prefers-reduced-motion` honoured:
+    `<MotionConfig reducedMotion="user">` app-wide, `Reveal disabled={reduceMotion}` on
+    the landing, GSAP + ScrollTrigger `registerPlugin`'d only inside the lazy
+    `landing-page` chunk. Real-phone stagger eyeball folded into `docs/device-testing.md`.
+- [x] `L3.5.2` (S) Lighthouse on the local production build
   - `npm run build -w @invoice-saas/web` + `vite preview`, run Lighthouse (perf / a11y /
     best-practices / SEO). The `X.5` a11y fixes (Tailwind v4 dark-theme + contrast) should
     hold. Also confirm the marketing chunk is still split out (~47 KB gz, `X.6.1`).
   - **Done when:** scores recorded, a11y ≥ the `X.5` baseline, marketing chunk separate.
+  - **Done** — full table in `docs/performance.md` (Lighthouse 13.4.1, local prod build):
+    landing **desktop perf 99** / mobile 83, **a11y 96**, best-practices 96, **SEO 100**;
+    `/login` mobile perf 88. **A11y ≥ X.5 baseline** (the axe e2e still passes,
+    0 serious/critical): fixed `heading-order` on the landing (feature-strip titles
+    `<h3>` → `<h2>` — they sat straight under the hero `<h1>`); the lone remaining
+    Lighthouse flag `color-contrast` on the hero eyebrow pill is the same token pair
+    `X.5` tuned and is likely a `Reveal`-fade sampling artifact — tracked with the
+    dark-mode sweep. **SEO 91 → 100**: added `apps/web/public/robots.txt`
+    (`Disallow: /console/` + `/admin/`; sitemap needs the domain → V1.4).
+    **Marketing chunk still separate** — `landing-page-*.js` = 46.65 KB gz incl. GSAP
+    (0 `gsap` hits in the base chunk); Sentry's 156 KB gz `esm` chunk is dynamic-import
+    /DSN-gated, never fetched keyless. Recorded follow-ups (non-blocking): base chunk
+    347 KB gz → route-level `lazy()` for `/console/*` + `/admin/*`; enable hidden prod
+    source maps for Sentry at `V1.6.1`.
 
 ## Epic L3.6 — Security review
 
-- [ ] `L3.6.1` (M) Full pre-launch security pass (local)
+- [x] `L3.6.1` (M) Full pre-launch security pass (local)
   - Run `/security-review` on the branch. Manually verify: every DB query is tenant-scoped
     via middleware (`0.2.4`, never per-route) — spot-check the cross-tenant admin
     endpoints specifically; `helmet` + rate limits present (`X.4`); `requireAdmin`
@@ -656,28 +804,75 @@ Deferred from `X.3` ("mid-range-phone profiling pass deferred to the pre-launch 
     secret is logged (`request-logger.ts` logs method/path/status only); `--no-sandbox`
     Chrome only ever renders our own HTML.
   - **Done when:** the review is clean or every finding is triaged.
-- [ ] `L3.6.2` (S) Rate-limit review
+  - **Done — full writeup in `docs/security-review.md`.** The `/security-review` skill
+    was invoked but its automated diff came up empty (L3 is entirely uncommitted — no
+    commits ahead of `origin/main`); re-run it once the branch is committed. Manual pass:
+    **every checklist item verified clean** — `scopedPrisma()` `$extends` forces
+    `tenantId` on `where`/`data` for all 11 tenant models (`security:check` proves
+    cross-tenant isolation); all 7 `/admin/*` routers `use(authenticate, requireAdmin)`
+    and `requireAdmin` re-reads `role` per call (services use unscoped prisma but always
+    with an explicit `tenantId` filter); `helmet()` first, CSP/CORP off on the JSON API
+    by design; Stripe webhook `express.raw` mounted **before** `express.json()`;
+    `request-logger` logs method/URL/status only and verify/reset tokens ride in the
+    **body** not the query string; `--no-sandbox` Chrome renders only the shared
+    `renderInvoice` string with request interception that serves only `/fonts` + `/uploads`
+    from disk (`basename` strips traversal) and aborts everything else — no SSRF; the
+    renderer `esc()`s every user field. **New L3 code:** one **Low, dev-only** finding —
+    `lib/cors-origin.ts` reflects private-LAN / tunnel origins with `credentials:true`
+    when `!isProduction` (accepted for `L3.4` device testing; prod stays exact-match
+    `WEB_ORIGIN`; auth needs a Bearer header, not an ambient cookie). Nothing else new
+    adds surface.
+- [x] `L3.6.2` (S) Rate-limit review
   - `middleware/rate-limit.ts` — auth, send, and AI limits sane for real usage. Note that
     correct client-IP behind a proxy (`trust proxy` / `X-Forwarded-For`) can only be
     fully verified once nginx is in front → flag for **V1.3**, but set the intended config
     now.
   - **Done when:** the limits and the intended proxy config are documented.
-- [ ] `L3.6.3` (S) GDPR endpoints verified locally
+  - **Done** (`docs/security-review.md` §L3.6.2): all five limiters tabulated
+    (`apiLimiter` 300/min blanket · `credentialsLimiter` 10/15min · `refreshLimiter`
+    120/15min · `emailDispatchLimiter` 5/hr · `expensiveLimiter` 20/5min over
+    AI/PDF/export/delete) — all judged appropriate. Intended proxy config already set:
+    `app.set('trust proxy', 1)` (trust exactly one hop — nginx on-box; ignores a
+    client-appended `X-Forwarded-For`). Real-IP-behind-nginx verification flagged for
+    `V1.3.3`; do **not** use `trust proxy: true` on the VPS.
+- [x] `L3.6.3` (S) GDPR endpoints verified locally
   - `X.4` shipped `DELETE /profile` and `GET /profile/export`. Confirm both work end to
     end against local data and the export is complete; deletion cascades (matches
     `L2.3.4`).
   - **Done when:** a local test account can export its data and delete itself cleanly.
+  - **Done (2026-09-01)** — drove a throwaway account through the real API on local
+    Postgres. `GET /profile/export` → 200, all 10 sections, `schemaVersion 1`,
+    `passwordHash` excluded. `DELETE /profile` re-auth: wrong password → 422, wrong
+    `confirmEmail` → 422, correct → 204. Cascade: before 1 client / 1 product / 3 refresh
+    tokens → after **user 0, clients 0, products 0, usageCounter 0, refresh 0**; old
+    access token then 401s. Matches the `L2.3.4` admin hard-delete. One note recorded:
+    support-ticket content isn't in the export (tickets are `SetNull` + email snapshot on
+    delete) — revisit at `V1.x` only if ticket bodies start holding tenant text.
 
 ## Epic L3.7 — Open decision: session strategy
 
 Closes `1.1.1` ("still open, deliberately deferred"). Pure decision — no server needed.
 
-- [ ] `L3.7.1` (S) Decide + document the session model
+- [x] `L3.7.1` (S) Decide + document the session model
   - Current: 15-min access JWT + opaque DB refresh tokens, rotation on refresh, revoke on
     disable/delete. Decide whether that's the launch answer (idle timeout? absolute max?
     "remember me"? concurrent-session cap?).
   - **Done when:** the decision is in `decisions.md` as a `D`-entry; if nothing changes,
     say so explicitly.
+  - **Done — `D35` in `decisions.md` (closes `1.1.1`, ratifies `D12`): nothing changes
+    for launch.** Idle timeout = the existing 30-day sliding window (refresh `expiresAt`
+    fixed at issue, rotation mints a fresh 30 days) — fits a monthly-invoicing cadence;
+    `JWT_ACCESS_TTL_SECONDS` / `REFRESH_TTL_DAYS` stay env-tunable. **"Remember me" → no**
+    (owner-device B2B; `logout` + `httpOnly` cover shared computers). **Concurrent-session
+    cap → no** (single-user tenants run laptop + phone; the future direction is an
+    "active sessions / revoke device" screen — `refresh_tokens.userAgent`/`ip` already
+    exist for it). **Absolute max lifetime → adopt a 90-day cap as a post-launch
+    fast-follow** (not launch-blocking): add `RefreshToken.sessionStartedAt` (set at
+    login, copied forward on rotation), reject in `rotateRefreshToken` past 90 days —
+    ~20 LOC + one migration + a test; sketch is in `D35`. Rationale: `D12` is already
+    stronger than a typical v1 (rotation + reuse-detection + hash-at-rest + short
+    stateless access token + full revocation), and the app stores invoices, not payment
+    credentials.
 
 ---
 

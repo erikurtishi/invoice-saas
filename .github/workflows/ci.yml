@@ -1,0 +1,142 @@
+# CI — lint, typecheck, build, guard scripts, Vitest, Playwright.
+#
+# Backlog L3.1 (production backlog) — the half of 0.3.4 that needs no VPS. Runs on
+# GitHub, from a clean checkout, on every push to `main` and every pull request.
+# A red job blocks merge. The deploy-on-merge half is V1.4.
+#
+# No app secret values live here: tests run against NullDrafter / ConsoleMailer and
+# a throwaway Postgres service container. `stripe:check` talks to a real Stripe test
+# sandbox, so it runs only when a `STRIPE_TEST_SECRET_KEY` repo secret is set — CI is
+# green on a fresh clone or a fork without one (L3.1.2).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  quality:
+    name: Lint · format · typecheck · build · i18n
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # Everything downstream imports @invoice-saas/shared from its built dist.
+      - run: npm run build -w @invoice-saas/shared
+      - run: npm run lint
+      # ops/*.sh — backup + restore scripts (L3.2). shellcheck ships on the runner.
+      - run: shellcheck ops/*.sh
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run i18n:check
+
+  checks-and-tests:
+    name: Guard scripts · Vitest
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: invoice_saas_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/invoice_saas_ci
+      # Dummy — min 32 chars to satisfy config/env.ts. Not a real secret.
+      JWT_ACCESS_SECRET: ci-only-insecure-jwt-secret-00000000000000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @invoice-saas/shared
+      # System libraries for the puppeteer-bundled Chrome that render:check and the
+      # PDF-snapshot integration test drive.
+      - run: npx playwright install-deps chromium
+      - run: npm run db:migrate:deploy -w @invoice-saas/api
+      # check:db = numbering + invoice + entitlements + history + security + render.
+      - run: npm run check:db
+      - run: npm run ai:check -w @invoice-saas/api
+      # Offline Sentry-seam proof (L3.3.1): no DSN ⇒ dark seam; asserts the
+      # assembled event carries environment + release. Sends nothing.
+      - run: npm run sentry:check -w @invoice-saas/api
+      - run: npm run admin:check -w @invoice-saas/api
+      - run: npm run overview:check -w @invoice-saas/api
+      - run: npm run tenants:check -w @invoice-saas/api
+      - run: npm run usage:check -w @invoice-saas/api
+      - run: npm run billing:check -w @invoice-saas/api
+      - run: npm run support:check -w @invoice-saas/api
+      # Real Stripe test-sandbox round-trip — opt-in, only with a configured key.
+      - name: stripe:check (only when STRIPE_TEST_SECRET_KEY is set)
+        if: ${{ secrets.STRIPE_TEST_SECRET_KEY != '' }}
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          # The check signs its own payloads — any whsec_ string works.
+          STRIPE_WEBHOOK_SECRET: whsec_ci_selfsigned_dummy
+        run: npm run stripe:check -w @invoice-saas/api
+      - run: npm test
+
+  e2e:
+    name: Playwright E2E + a11y
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: invoice_saas_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/invoice_saas_ci
+      JWT_ACCESS_SECRET: ci-only-insecure-jwt-secret-00000000000000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @invoice-saas/shared
+      - run: npx playwright install --with-deps chromium
+      - run: npm run db:migrate:deploy -w @invoice-saas/api
+      # playwright.config.ts sees CI and boots its own API + web dev servers.
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-artifacts
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+          if-no-files-found: ignore

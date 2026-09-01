@@ -9,6 +9,7 @@
 | PDF snapshot | Vitest | `apps/api/src/lib/pdf/pdf-snapshot.integration.test.ts` | Postgres + headless Chrome |
 | E2E happy path | Playwright | `apps/web/e2e/happy-path.spec.ts` | full stack (auto-booted) |
 | Accessibility | Playwright + axe-core | `apps/web/e2e/a11y.spec.ts` | full stack |
+| Responsive smoke | Playwright | `apps/web/e2e/responsive.spec.ts` | full stack — phone/tablet viewports, no page side-scroll (L3.4; physical pass in `docs/device-testing.md`) |
 | End-to-end smoke checks | `tsx` scripts | `apps/api/scripts/*-check.ts` | local Postgres (some also Chrome / Stripe) |
 
 The `*-check.ts` scripts predate Vitest and stay as broader, live-DB smoke checks
@@ -74,9 +75,21 @@ npm run test:e2e -w @invoice-saas/web -- happy-path
 - **Dark-mode a11y sweep.** The gate scans light. Dark mode has known contrast
   gaps — `text-primary` link/nav text on the near-black card surfaces (~3.5:1) —
   that want a lighter dark-mode accent token or a dedicated link colour. Track as
-  its own task; it's a palette change, not a test change.
-- **CI wiring (0.3.4).** `npm test` + `npm run test:e2e` + `npm run check:db` are
-  the CI job; provisioning Postgres and Chrome in CI lands with 0.3.1 / 0.3.4.
+  its own task; it's a palette change, not a test change. (Lighthouse's L3.5.2
+  `color-contrast` flag on the landing hero pill folds into this.)
+- **Performance profiling** lives in `docs/performance.md` — Lighthouse on the
+  local prod build (L3.5). Not a repo dependency; run via `npx lighthouse` against
+  `vite preview`. Top follow-up: route-level `lazy()` for `/console/*` + `/admin/*`
+  to cut the 347 KB gz base chunk.
+- **CI (done — production backlog L3.1).** `.github/workflows/ci.yml` runs on every
+  push to `main` and every PR, from a clean checkout, in three parallel jobs:
+  _quality_ (lint · `format:check` · typecheck · build · `i18n:check`, no DB),
+  _checks-and-tests_ (a `postgres:17` service + `db:migrate:deploy`, then
+  `check:db` and the `ai`/`admin`/`overview`/`tenants`/`usage`/`billing`/`support`
+  guard scripts, then `npm test`), and _e2e_ (`postgres:17` + `playwright install
+  --with-deps chromium`, then `npm run test:e2e`). No secret values in CI —
+  `stripe:check` runs only when a `STRIPE_TEST_SECRET_KEY` repo secret is set and
+  is skipped (green) otherwise. Deploy-on-merge is still V1.4.
 
 ---
 
@@ -91,14 +104,29 @@ Developer plan is free; the integration ships now, dark until a DSN is set.
   in `index.ts`; with no `SENTRY_DSN` it is a no-op. `captureError()` is called
   from the central `error-handler.ts` for genuine 5xx only (4xx `ApiError`s are
   normal traffic). No PII (`sendDefaultPii: false`), errors-only (no tracing).
+  `sentryOptions()` builds the `init` config — `environment` = `NODE_ENV`,
+  `release` = `SENTRY_RELEASE` (unset locally; the deploy step sets it to the git
+  SHA at V1.4.4).
 - **Web** — `apps/web/src/lib/observability.ts`. `initObservability()` in
   `main.tsx` **dynamically imports** `@sentry/react` only when `VITE_SENTRY_DSN`
-  is set, so a build without a DSN doesn't ship the SDK. The root
-  `<AppErrorBoundary>` forwards caught render errors through `captureError()`.
+  is set, so a build without a DSN doesn't ship the SDK. `environment` =
+  `import.meta.env.MODE`, `release` = `VITE_SENTRY_RELEASE`. Both the root
+  `<AppErrorBoundary>` and the in-shell route `<ErrorBoundary>` forward caught
+  render errors through `captureError()` (the route one added in L3.3.1 — before
+  that a route crash was `console.error` only).
+
+**Verifying the seam (L3.3.1).** `npm run sentry:check -w @invoice-saas/api` proves
+it offline: with no DSN the seam stays dark; then it inits Sentry with a
+`beforeSend` hook, captures a deliberate error, and asserts the assembled event
+carries `environment` + `release` + the message + non-PII tags — sending nothing.
+Set a real `SENTRY_DSN` (+ `SENTRY_RELEASE`) and the same event is also
+transmitted. Web: with `VITE_SENTRY_DSN` set, call `__sentryTestError()` in the
+browser console (dev builds only). The visual "it showed up in the Sentry UI"
+confirmation is V1.6.1.
 
 To enable in staging / production: create a free Sentry project, set `SENTRY_DSN`
-in `apps/api`'s env and `VITE_SENTRY_DSN` in `apps/web`'s build env. Nothing else
-changes.
+(+ `SENTRY_RELEASE`) in `apps/api`'s env and `VITE_SENTRY_DSN`
+(+ `VITE_SENTRY_RELEASE`) in `apps/web`'s build env. Nothing else changes.
 
 ### Uptime monitoring — ops, free tier
 
