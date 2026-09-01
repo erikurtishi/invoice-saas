@@ -120,9 +120,25 @@ for (const dev of DEVICES) {
       await test.step('template editor collapses to tabs', async () => {
         await page.goto('/console/dev/template-editor');
         await expectNoHScroll(page, `${dev.name} template editor`);
+        // The editor host here is the dev-only route (`import.meta.env.DEV` in
+        // App.tsx) — it's the only way to reach `<TemplateEditor>` as a fresh
+        // FREE signup, which `/console/templates/new` bounces (3.3.6). A
+        // production build (`vite preview`, L4.1) tree-shakes that route out, so
+        // race the tablist against the 404 screen and skip the layout assertion
+        // when it isn't mounted.
+        const designTab = page.getByRole('tab', { name: /design/i });
+        const notFound = page.getByRole('heading', { name: /not found/i });
+        await expect(designTab.or(notFound).first()).toBeVisible();
+        if (await notFound.isVisible()) {
+          test.info().annotations.push({
+            type: 'skip',
+            description: 'dev template-editor route absent from this build (production preview)',
+          });
+          return;
+        }
         // Below `lg` the editor renders a Design/Preview tablist, not the
         // side-by-side grid (template-editor.tsx).
-        await expect(page.getByRole('tab', { name: /design/i })).toBeVisible();
+        await expect(designTab).toBeVisible();
         await expect(page.getByRole('tab', { name: /preview/i })).toBeVisible();
         await page.getByRole('tab', { name: /preview/i }).click();
       });

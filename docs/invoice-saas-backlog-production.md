@@ -881,38 +881,85 @@ Closes `1.1.1` ("still open, deliberately deferred"). Pure decision — no serve
 **Goal:** rehearse the whole launch against localhost so that when the VPS exists, V1 is
 mechanical.
 
-- [ ] `L4.1` (S) End-to-end smoke against the local prod build
+- [x] `L4.1` (S) End-to-end smoke against the local prod build
   - `npm run build` both apps, `vite preview` for web + the API in `NODE_ENV=production`
     **with the real mailer + AI keys set** (this is where the `mail/index.ts` prod gate
     first bites — it should now pass because `L1.1` wired a real mailer). Run the
     Playwright critical-path suite against it.
   - **Done when:** the production-mode app boots locally and the e2e suite is green
     against it.
-- [ ] `L4.2` (S) Stripe test-mode full loop
+  - **Done (2026-09-01)** — `npm run build` green for all three workspaces.
+    `NODE_ENV=production node dist/index.js` with the real `RESEND_API_KEY` +
+    `MAIL_FROM` (`onboarding@resend.dev`) **boots** — the `mail/index.ts` production gate
+    passes now that `L1.1` wired `ResendMailer`; `/health` → 200. Ran the full Playwright
+    suite (`PW_REUSE=1`) against the built API + `vite preview`: **20/20 green** —
+    `happy-path`, `mobile-critical-path` (phone + tablet), `responsive`, `a11y`. One test
+    fix: `mobile-critical-path.spec.ts`'s "template editor collapses to tabs" step reached
+    `/console/dev/template-editor`, a route mounted only under `import.meta.env.DEV`
+    (`App.tsx`) and tree-shaken out of a `vite preview` build — it now races the tablist
+    against the 404 screen and skips the assertion when the dev route is absent. The e2e
+    run itself must start against a **fresh** API process — `credentialsLimiter`
+    (10 signups / 15 min / IP, in-memory) will 429 if several suite runs stack up in one
+    window.
+- [x] `L4.2` (S) Stripe test-mode full loop
   - With Stripe **test** keys + the local webhook forwarder (`stripe listen` /
     `stripe:setup`): signup → hit the Free invoice limit → subscribe via Checkout →
     entitlements flip → open the Customer Portal → cancel → entitlements drop after the
     period. Confirm the webhook handler is idempotent (raw body before json).
   - **Done when:** the full billing loop works locally in test mode, webhooks included.
-- [ ] `L4.3` (S) i18n final parity incl. admin
+  - **Done (2026-09-01)** — `npm run stripe:check -w @invoice-saas/api` exercises the
+    whole lifecycle against Stripe **test** infra: real `cs_test_…` Checkout + Portal
+    URLs, webhook → `Subscription` (BASIC/ACTIVE/STRIPE), entitlements + `users.tier`
+    cache flip, **replay of the same event id is a no-op** (idempotency via
+    `processed_stripe_events`, unique-constrained `create()` → unique-violation returns
+    early), BASIC↔PREMIUM switch (AI unlocks), `past_due` → `PAST_DUE` still grants,
+    `cancel_at_period_end` → access to period end + no renewal, `deleted` → CANCELED →
+    FREE, signature accept/reject. Raw-body ordering verified in `index.ts` — webhook at
+    `:81` (`express.raw`) before `express.json()` at `:83`, path in `UNLIMITED_PATHS`.
+    Steps for the residual browser-only leg (hosted Checkout redirect + `stripe listen`
+    forwarder) written up in `docs/stripe-test-loop.md`; reused at `V1.7.3`.
+- [x] `L4.3` (S) i18n final parity incl. admin
   - `npm run i18n:check` green **including** all new `admin.*` keys from L2. Spot-check
     `sq` + `mk` on the new admin screens.
   - **Done when:** the check passes and the admin copy has been eyeballed in all three
     languages.
-- [ ] `L4.4` (S) `.env.example` + config completeness
+  - **Done (2026-09-01)** — `npm run i18n:check` green: **985 keys, 3 locales
+    (en/sq/mk), interpolation tokens aligned, D9 gate clean** — parity covers the whole
+    `admin.*` tree. Spot-checked the `sq` + `mk` `admin` blocks (shell / nav / common /
+    overview / usage / billing / support): real translations, not `en` fallbacks, with
+    every `{{token}}` preserved. Standing caveat unchanged: model-authored SQ/MK still
+    wants a native-speaker pass before launch (applies app-wide, not an L4 blocker).
+- [x] `L4.4` (S) `.env.example` + config completeness
   - Every secret the API reads in `config/env.ts` is in `apps/api/.env.example` (keys, no
     values) and in the backup-runbook §4 table: `DATABASE_URL`, `JWT_ACCESS_SECRET`,
     `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*`,
     `STRIPE_PORTAL_CONFIG_ID`, mail provider key (L1.1), AI provider key (L1.2), Sentry
     DSN (L3.3).
   - **Done when:** a teammate could stand up a local env from `.env.example` alone.
+  - **Done (2026-09-01)** — diffed the `env.ts` schema against the template: **all 24
+    keys** present in `apps/api/.env.example` (keys only, commented guidance for each
+    group — Stripe, Sentry, Resend, AI). Runbook §4 table covers every secret-bearing
+    var (`STRIPE_PRICE_BASIC`/`_PREMIUM` sit under its `STRIPE_PRICE_*` row). Web build
+    vars are in `apps/web/.env.example` (`VITE_API_URL`, `VITE_SENTRY_DSN`,
+    `VITE_SENTRY_RELEASE`). A teammate can stand up a local env from the two templates
+    alone.
 - [ ] `L4.5` (S) Legal pages reviewed
   - `/privacy` + `/terms` (`X.4`) name the real company entity and the right
     jurisdictions (MK/AL/XK + US). A support contact address exists (feeds L2.7).
   - **Done when:** both pages are accurate for the real entity.
+  - **Deferred (2026-09-01) — blocked on legal sign-off.** `routes/legal/legal-content.ts`
+    still carries the bracketed tokens by design (`[COMPANY]`, `[JURISDICTION]`,
+    `[CONTACT EMAIL]`, `[COMPANY ADDRESS]`, `[HOSTING REGION]`, `[EFFECTIVE DATE]`) — the
+    section structure is the deliverable (D29); the real legal entity, address,
+    jurisdictions and support address are filled in at sign-off. Not launch-mechanical;
+    revisit before flipping DNS at `V1.4`.
 
 **At the end of L4 the app is "launch-ready pending infrastructure":** every feature,
 provider, and admin screen works; the only thing missing is a public box to run it on.
+
+**Status (2026-09-01):** `L4.1`–`L4.4` done. `L4.5` (legal-page entity fill-in) is
+deferred, blocked on legal sign-off — the page structure ships; the bracketed tokens are
+filled before DNS at `V1.4`. Nothing else in L4 is outstanding.
 
 ---
 
@@ -1069,7 +1116,8 @@ should take days, not weeks, because everything it deploys has already been prov
 9. The session strategy is decided and written down. *(L3.7)*
 10. The production-mode build boots locally with real keys and the e2e suite is green
     against it; the full Stripe test-mode billing loop passes. *(L4.1, L4.2)*
-11. `.env.example` is complete; legal pages name the real entity. *(L4.4, L4.5)*
+11. `.env.example` is complete *(L4.4 ✓)*; legal pages name the real entity *(L4.5 —
+    deferred, blocked on legal sign-off; structure ships, tokens filled before `V1.4`)*.
 
 # Definition of "production ready" (end of V1)
 

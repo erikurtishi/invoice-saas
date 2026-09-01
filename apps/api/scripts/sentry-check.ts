@@ -7,11 +7,15 @@
  *      never throws. (This is what keeps `npm run dev` and CI untouched.)
  *   B. Envelope — init Sentry with a `beforeSend` hook and capture a deliberate
  *      error. The hook receives the fully-assembled event, so we can assert it
- *      carries `environment` (always) and `release` (when `SENTRY_RELEASE` is set)
- *      plus the thrown message and our tags — without anything leaving the
- *      process. If a real `SENTRY_DSN` *is* set, the same event is also
- *      transmitted, so this doubles as the "throw a test error and see it in the
- *      UI" step (the UI confirmation itself is V1.6.1).
+ *      carries `environment` (always), that `sentryOptions().release` mirrors
+ *      `SENTRY_RELEASE`, and — when that var is set — that the release reaches the
+ *      event, plus the thrown message and our tags, without anything leaving the
+ *      process. (When `SENTRY_RELEASE` is unset the SDK may still backfill the
+ *      event's release from a CI env var such as `GITHUB_SHA`; that's the SDK's
+ *      doing, not our seam's, so B asserts our option, not the raw event.) If a
+ *      real `SENTRY_DSN` *is* set, the same event is also transmitted, so this
+ *      doubles as the "throw a test error and see it in the UI" step (the UI
+ *      confirmation itself is V1.6.1).
  *
  *   npm run sentry:check -w @invoice-saas/api
  *   SENTRY_DSN=https://…  SENTRY_RELEASE=$(git rev-parse HEAD)  npm run sentry:check -w @invoice-saas/api
@@ -88,17 +92,22 @@ async function main(): Promise<void> {
       event.environment === env.NODE_ENV,
       `got ${JSON.stringify(event.environment)}`,
     );
+    // `release` is our seam's responsibility only as far as the option we hand
+    // `Sentry.init()`. When `SENTRY_RELEASE` is unset that option is `undefined`;
+    // the SDK itself may then backfill the event from a CI env var (`GITHUB_SHA`
+    // on Actions, Vercel/Netlify equivalents, …), which is fine — a CI-driven
+    // deploy *should* be tagged. So assert our option here, and separately that a
+    // release we *did* set survives into the assembled event.
+    check(
+      'sentryOptions().release mirrors SENTRY_RELEASE (unset ⇒ undefined)',
+      sentryOptions().release === env.SENTRY_RELEASE,
+      `option=${JSON.stringify(sentryOptions().release ?? null)}`,
+    );
     if (env.SENTRY_RELEASE) {
       check(
         `event.release === SENTRY_RELEASE ("${env.SENTRY_RELEASE}")`,
         event.release === env.SENTRY_RELEASE,
         `got ${JSON.stringify(event.release)}`,
-      );
-    } else {
-      check(
-        'event.release is absent when SENTRY_RELEASE is unset',
-        event.release === undefined,
-        '(set to the deploy git SHA at V1.4.4)',
       );
     }
     const message = event.exception?.values?.[0]?.value ?? '';

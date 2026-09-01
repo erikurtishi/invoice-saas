@@ -23,8 +23,10 @@ let enabled = false;
 export function sentryOptions(): Sentry.NodeOptions {
   return {
     environment: env.NODE_ENV,
-    // Undefined when unset → Sentry simply omits the tag. Set to the deployed git
-    // SHA by the deploy step (V1.4.4) so an incident maps to a release.
+    // Our seam never invents a release: this is `undefined` unless the deploy
+    // step (V1.4.4) sets `SENTRY_RELEASE` to the shipped git SHA. Note the SDK
+    // itself still backfills the event's release from a CI env var (`GITHUB_SHA`
+    // etc.) when this is undefined — harmless, and only ever fires under CI.
     release: env.SENTRY_RELEASE,
     tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
     // PII (emails, client names, request bodies) must not leave the box.

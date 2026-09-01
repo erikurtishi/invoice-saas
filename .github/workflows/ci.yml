@@ -28,8 +28,8 @@ jobs:
     name: Lint · format · typecheck · build · i18n
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -70,8 +70,8 @@ jobs:
       # repo defines the secret (and always empty for fork PRs).
       STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -124,8 +124,8 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/invoice_saas_ci
       JWT_ACCESS_SECRET: ci-only-insecure-jwt-secret-00000000000000
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -135,7 +135,7 @@ jobs:
       - run: npm run db:migrate:deploy -w @invoice-saas/api
       # playwright.config.ts sees CI and boots its own API + web dev servers.
       - run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: ${{ !cancelled() }}
         with:
           name: playwright-artifacts
