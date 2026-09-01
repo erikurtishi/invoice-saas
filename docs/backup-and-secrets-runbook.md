@@ -90,7 +90,9 @@ authority; keep this table in step with it.
 | `STRIPE_SECRET_KEY` | Stripe API (prefer a restricted `rk_` key) | Via Stripe dashboard; roll immediately on suspected leak |
 | `STRIPE_WEBHOOK_SECRET` | Verifies Stripe webhook signatures | When the webhook endpoint is recreated |
 | `STRIPE_PRICE_*`, `STRIPE_PORTAL_CONFIG_ID` | Not secret, but env-pinned | On price/portal change |
-| AI provider key (`*_API_KEY`, once a provider is chosen — D25) | AI drafting | Provider dashboard |
+| `RESEND_API_KEY` | Transactional email (verification, reset, invoice send — L1.1 / Decision A) | Resend dashboard; roll on suspected leak |
+| `MAIL_FROM` | Not secret — the verified "from" address; required when `RESEND_API_KEY` is set | On sending-domain change (V1.5.3) |
+| `ANTHROPIC_API_KEY` / `AI_API_KEY` (per `AI_PROVIDER`, L1.2 / D25) | AI drafting — unset by default (`NullDrafter`) | Provider dashboard |
 
 Rules:
 

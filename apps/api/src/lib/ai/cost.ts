@@ -24,7 +24,8 @@ interface ModelRate {
  * straight through.
  */
 export const AI_MODEL_PRICING: Record<string, ModelRate> = {
-  // Anthropic (list, 2026-Q3)
+  // Anthropic (list, 2026-Q3). Alias + dated ids both resolve — keep both.
+  'claude-haiku-4-5': { inputPerMTokUsd: 1, outputPerMTokUsd: 5 },
   'claude-haiku-4-5-20251001': { inputPerMTokUsd: 1, outputPerMTokUsd: 5 },
   'claude-sonnet-5': { inputPerMTokUsd: 3, outputPerMTokUsd: 15 },
   // OpenAI (list, 2026-Q3)

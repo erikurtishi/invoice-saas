@@ -758,6 +758,29 @@ plus all the surrounding logic; the concrete LLM provider (`7.1.1`) is deferred.
 - Smoke: `npm run ai:check -w @invoice-saas/api` (fake `AiDrafter`, 40+
   assertions). Frontend (Epic 7.2) is untouched by this.
 
+**Extension (2026-09-01, closes `L1.2.2` — concrete adapters, still no key wired):**
+Two selectable adapters landed behind the same port; the default build is
+unchanged (`NullDrafter`, `/ai/*` 503s). Provider is chosen by `AI_PROVIDER`:
+
+- **`anthropic`** → `ClaudeDrafter` (`lib/ai/claude-drafter.ts`) — an existing
+  hosted model, intended for Claude Haiku. Needs `ANTHROPIC_API_KEY` + `AI_MODEL`
+  (e.g. `claude-haiku-4-5`). Plain `fetch` against `/v1/messages`, **no
+  `@anthropic-ai/sdk` dependency**; structured output is a forced single-tool call
+  whose `input_schema` is `z.toJSONSchema(aiExtractionSchema)` (Zod 4 native).
+- **`custom`** → `CustomDrafter` (`lib/ai/custom-drafter.ts`) — a self-hosted or
+  self-built model on an **OpenAI-compatible `POST {AI_BASE_URL}/chat/completions`**
+  (vLLM / llama.cpp / Ollama `/v1` / bespoke). Needs `AI_BASE_URL` + `AI_MODEL`,
+  optional `AI_API_KEY`. Schema is embedded in the prompt + `response_format:
+  json_object`.
+- Shared prompt/schema builder in `lib/ai/prompt.ts` so both providers ask for
+  exactly the same thing; only the transport differs. All guardrails / retry /
+  metering / cost stay in `ai-draft-service.ts` — untouched.
+- `config/env.ts` refuses to boot if `AI_PROVIDER` is named without its required
+  vars. New: `npm run ai:provider-check` (one real `draft()` call + schema check
+  when configured; asserts `NullDrafter` otherwise).
+- Deliberately **not** wired to a live key here (owner will add one). `cost.ts`
+  now prices the `claude-haiku-4-5` alias too; an unpriced custom model logs `0`.
+
 ---
 
 ## D26 — App i18n (Epic X.1): react-i18next, `en` as source of truth, UI vs invoice language split
@@ -1100,38 +1123,103 @@ task because X.6 needs a home for the landing page anyway.
   section through `gsap.context()`; `disabled` is wired to `useReducedMotion()`
   so `prefers-reduced-motion` renders everything static with no GSAP at all.
 - **SEO (X.6.3).** `useLandingSeo()` sets `document.title` + `description` /
-  `og:*` / `twitter:*`, re-running on language change and removing the tags it
-  created on unmount. `index.html` got a static `<title>` + description +
-  `theme-color` for first paint / crawlers. **OG image artwork is a separate
-  design deliverable** — the tag points at `/og-image.png`; add the asset before
-  launch.
+  `og:*` / `twitter:*`, re-running on language change. `index.html` got a static
+  `<title>` + description + `theme-color` for first paint / crawlers.
+  **Update (L1.3, 2026-09-01):** `apps/web/public/og-image.png` (1200×630, on-brand
+  placeholder) now exists, and `index.html` carries a **static** OG/Twitter block
+  (EN copy) so non-JS social scrapers get a card — `useLandingSeo()` reuses those
+  tags for per-locale copy on JS clients. Headless-Chrome verified across EN/SQ/MK;
+  image resolves 200 · image/png · 1200×630. Real-platform card preview + an
+  absolute image URL are `V1.5.4` (need the domain). A hand-designed image can
+  still replace the placeholder.
 
 **Verification:** `npm run typecheck` · `npm run lint` · `npm run i18n:check`
 (661 keys) · `npm test` (53) · `npm run build` (landing splits to its own chunk) ·
 e2e `happy-path` (full signup→onboarding→`/console`→invoice→send) and `a11y`
 (13 screens incl. `/` and every `/console/*`) all green.
 
+## D33 — Transactional email provider: Resend (closes D13 / `4.3.4` / L1.1.1)
+
+**Decided:** the concrete `Mailer` (D13) is **Resend**. `ResendMailer`
+(`apps/api/src/mail/resend-mailer.ts`) is the only file that imports the `resend`
+SDK; `mail/index.ts` selects it when `RESEND_API_KEY` + `MAIL_FROM` are set and
+falls back to `ConsoleMailer` otherwise. No call site changed.
+
+**Why Resend over Postmark / SMTP:**
+- **Permanent free tier** (3,000 emails/month, 100/day) — not a time-limited
+  trial. Postmark's free tier is 100 test-only messages; SMTP needs a mail server
+  we do not have.
+- **Onboarding sandbox sending domain** (`onboarding@resend.dev`) works from
+  localhost with no domain of our own — enough to build and verify L1.1.3 now.
+- First-class **attachment** support (the invoice PDF rides along as
+  `MailAttachment`), single HTTP call, `{ data, error }` return.
+- Adequate deliverability for the Balkans + US on an authed domain; real
+  SPF/DKIM/DMARC tuning on the production sending domain is **V1.5.3**.
+
+**Consequences:**
+- `RESEND_API_KEY` (`re_…`, optional) + `MAIL_FROM` (required whenever the key is
+  set) added to `config/env.ts`, `.env.example`, backup-runbook §4. A
+  `superRefine` fails boot if the key is present without `MAIL_FROM`.
+- `mail/index.ts` still throws at boot under `NODE_ENV=production` when neither is
+  set — the V1 config flip is just providing both.
+- The Resend SDK reports failures via a returned `error` field, so `ResendMailer`
+  throws on it; `sendInvoice` (pdf-service.ts) already turns any throw from
+  `mailer.send()` into the "PDF generated but email could not be sent" 502
+  (L1.1.4 / X.7.15) — no new code there.
+- Switching provider later (e.g. to SMTP on the VPS) is still one new `Mailer`
+  class + the `createMailer()` line.
+
 ---
+
+## D34 — Admin center UI: charting library is `recharts`, lazy + theme-aware (closes open decision C / `L2.1.3`)
+
+**Decided:** the admin center's time-series charts (overview signups/day + month-end
+MRR, `L2.2.2`; usage volume charts, `L2.5`) render through **`recharts`** — the
+library the Phase 8 backend notes already assumed.
+
+**Why recharts over a hand-rolled SVG / Visx / Chart.js:**
+- Declarative React components, SSR-safe, no imperative canvas lifecycle to manage
+  inside the SPA. Matches how every other view in `apps/web` is written.
+- `ResponsiveContainer` covers the `X.2` responsive requirement for free.
+- Small enough to isolate in its own chunk; big enough that we do not want it in
+  the base admin bundle.
+
+**Consequences:**
+- Added to `apps/web/package.json` (`recharts`). It is imported **only** from
+  `apps/web/src/components/admin/admin-chart.tsx`, which is itself `React.lazy()`
+  behind `<Suspense>` — so the chart bundle is code-split and never lands in the
+  console or marketing chunks. `npm run build` emits it as a separate file.
+- `admin-chart.tsx` is the single wrapper: it reads the active theme
+  (`data-theme` / `prefers-color-scheme`, the same seam `X.5` set up) and passes
+  CSS-variable-derived colours to recharts, so charts track light/dark like the
+  rest of the app. Animation is disabled under `prefers-reduced-motion`
+  (`isAnimationActive={!reduced}`).
+- Every admin metric/list stays its own TanStack Query behind `<QueryBoundary>`
+  (`X.7.20`), so a slow or failing chart series never blanks the headline numbers.
 
 ## Still open
 
 - **Nothing blocks `0.2.2` now.** Postgres is running locally and verified; the VPS
   checks from the earlier managed-hosting revision no longer apply — a VPS has root, so
   Postgres and Chrome are both just installed, not discovered.
-- **Transactional email provider:** Resend vs Postmark vs Hostinger SMTP (`4.3.4`).
-  The `Mailer` port (D13) is in place and now carries PDF `attachments`; `4.3.4`
-  Send is wired against it with `ConsoleMailer` (writes the PDF to a temp file
-  locally). Only the concrete transport is undecided — a single new `Mailer`
-  class + a one-line swap in `mail/index.ts`.
+- **Transactional email provider — decided (`D33`): Resend.** `ResendMailer` is
+  wired behind `RESEND_API_KEY` + `MAIL_FROM`; `ConsoleMailer` stays the default
+  for `npm run dev` + CI. Still owed: a real send verified against a test inbox
+  (L1.1.3) and domain auth on the production sending domain (V1.5.3).
 - **Cloud file storage backend:** S3 / Cloudflare R2 / VPS volume (D15). The `Storage`
   port and `LocalDiskStorage` are in place; the concrete cloud store is picked when
   single-box hosting stops being enough (not before deploy).
-- **AI provider for drafting (`7.1.1`, D25):** Anthropic Claude vs OpenAI. The
-  `AiDrafter` port + `NullDrafter` are in place (so `/ai/*` 503s and `ai:check`
-  runs with a fake); a real adapter is one new class implementing `AiDrafter` +
-  a one-line swap in `lib/ai/index.ts`, plus an `*_API_KEY` / `AI_MODEL` env pair.
-  `lib/ai/cost.ts` already carries list prices for the likely models.
+- **AI provider for drafting (`7.1.1`, D25) — adapters built (`L1.2.2`), no key
+  wired.** Two selectable adapters exist behind the port: `AI_PROVIDER=anthropic`
+  (`ClaudeDrafter`, for an existing hosted model like Claude Haiku) and
+  `AI_PROVIDER=custom` (`CustomDrafter`, an OpenAI-compatible endpoint you run).
+  Default build is still `NullDrafter`. Owner adds a key + `AI_MODEL` to switch it
+  on; `npm run ai:provider-check` verifies the pick. Rate-limit / monthly-cap
+  verification against a real provider (`L1.2.3`) and the failure-UX eyeball
+  (`L1.2.4`) are still owed.
 - **Route restructure — done (`D32`, Epic X.6).** Public marketing `/`,
   `/console/*` for the authed app, `/admin/*` for the admin center.
-  `docs/route-map.md`. The `/admin/*` screen set itself is still future work
-  (Phase 8 UI) — only the route + role guard + a placeholder page exist.
+  `docs/route-map.md`. The `/admin/*` screen set is being built now (Phase L2) on
+  top of the already-complete Phase 8 backend.
+- **Admin charting library — decided (`D34`): `recharts`,** lazy-loaded and
+  theme-aware, imported only from `components/admin/admin-chart.tsx`.

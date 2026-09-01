@@ -18,6 +18,8 @@
     "history:check": "tsx scripts/history-check.ts",
     "entitlements:check": "tsx scripts/entitlements-check.ts",
     "ai:check": "tsx scripts/ai-draft-check.ts",
+    "ai:provider-check": "tsx scripts/ai-provider-check.ts",
+    "l1:mail-check": "tsx scripts/l1-mail-check.ts",
     "stripe:setup": "tsx scripts/stripe-setup.ts",
     "stripe:check": "tsx scripts/stripe-check.ts",
     "grant": "tsx scripts/grant.ts",
@@ -52,6 +54,7 @@
     "morgan": "^1.12.0",
     "multer": "^2.3.0",
     "puppeteer": "^25.9.0",
+    "resend": "^6.25.0",
     "sharp": "^0.35.4",
     "stripe": "^22.6.0",
     "zod": "^4.5.4"

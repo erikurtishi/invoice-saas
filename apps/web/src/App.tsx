@@ -15,7 +15,16 @@ import { useConsent } from './features/consent/use-consent';
 import { useSession } from './features/auth/use-auth';
 import { initAnalytics } from './lib/analytics';
 import { getTransition, pageTransition, pageVariants } from './lib/motion-presets';
-import { AdminHomePage } from './routes/admin/admin-home-page';
+import { AdminShell } from './components/admin/admin-shell';
+import { AdminAuditLogPage } from './routes/admin/admin-audit-log-page';
+import { AdminGrantsPage } from './routes/admin/admin-grants-page';
+import { AdminOverviewPage } from './routes/admin/admin-overview-page';
+import { AdminTenantDetailPage } from './routes/admin/admin-tenant-detail-page';
+import { AdminTenantsPage } from './routes/admin/admin-tenants-page';
+import { AdminBillingPage } from './routes/admin/admin-billing-page';
+import { AdminSupportDetailPage } from './routes/admin/admin-support-detail-page';
+import { AdminSupportPage } from './routes/admin/admin-support-page';
+import { AdminUsagePage } from './routes/admin/admin-usage-page';
 import { LegalPage } from './routes/legal/legal-page';
 import { ForgotPasswordPage } from './routes/auth/forgot-password';
 import { LoginPage } from './routes/auth/login';
@@ -73,13 +82,13 @@ function ConsoleLayout() {
 
 /** The admin center, mounted under `/admin`. Same `RequireAuth` as the console,
  * plus an `ADMIN` role gate — a signed-in non-admin gets a 403, not a redirect,
- * so a mistyped `/admin` link reads clearly. The screens themselves are still
- * backend-only (Phase 8), so this currently renders a single status page and
- * carries its own minimal chrome rather than the console shell. */
+ * so a mistyped `/admin` link reads clearly. `<AdminShell>` supplies the minimal
+ * chrome (top bar + section nav, distinct from the console `AppShell`) and its
+ * own `<Outlet>` for the matched section (backlog Phase L2). */
 function AdminLayout() {
   const { data: user } = useSession();
   if (user && user.role !== 'ADMIN') return <RouteStatusPage status={403} />;
-  return <Outlet />;
+  return <AdminShell />;
 }
 
 /**
@@ -320,14 +329,78 @@ function RoutedContent() {
               />
             </Route>
 
-            {/* Admin center — under /admin, ADMIN role only. Backend-only for now
-                (Phase 8), so this is a single status page. */}
+            {/* Admin center — under /admin, ADMIN role only. Screens are built on
+                the already-complete Phase 8 backend (backlog Phase L2). */}
             <Route path="/admin" element={<AdminLayout />}>
               <Route
                 index
                 element={
                   <PageTransition>
-                    <AdminHomePage />
+                    <AdminOverviewPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="tenants"
+                element={
+                  <PageTransition>
+                    <AdminTenantsPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="tenants/:id"
+                element={
+                  <PageTransition>
+                    <AdminTenantDetailPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="grants"
+                element={
+                  <PageTransition>
+                    <AdminGrantsPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="usage"
+                element={
+                  <PageTransition>
+                    <AdminUsagePage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="billing"
+                element={
+                  <PageTransition>
+                    <AdminBillingPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="support"
+                element={
+                  <PageTransition>
+                    <AdminSupportPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="support/:id"
+                element={
+                  <PageTransition>
+                    <AdminSupportDetailPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="audit-log"
+                element={
+                  <PageTransition>
+                    <AdminAuditLogPage />
                   </PageTransition>
                 }
               />

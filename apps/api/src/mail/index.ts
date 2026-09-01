@@ -1,18 +1,25 @@
-import { appUrl, isProduction } from '../config/env.js';
+import { appUrl, env, isProduction } from '../config/env.js';
 import { ConsoleMailer } from './console-mailer.js';
 import type { Mailer } from './mailer.js';
+import { ResendMailer } from './resend-mailer.js';
 
 export type { Mailer, MailMessage } from './mailer.js';
 
 /**
- * The process-wide mailer. Swap the constructor here when a transactional provider
- * is chosen (`new ResendMailer(env.RESEND_API_KEY)` etc.) — nothing else changes.
+ * The process-wide mailer. `ResendMailer` when `RESEND_API_KEY` is set (Decision
+ * A / L1.1), `ConsoleMailer` otherwise — the console transport stays the default
+ * for `npm run dev` and CI, where it prints the verification / reset link to the
+ * server log. Selecting the real transport is a config flip, not a code change;
+ * no call site depends on anything but the `Mailer` interface.
  */
 function createMailer(): Mailer {
+  if (env.RESEND_API_KEY && env.MAIL_FROM) {
+    return new ResendMailer(env.RESEND_API_KEY, env.MAIL_FROM);
+  }
   if (isProduction) {
     // Guard-rail: don't silently no-op real verification emails in production.
     throw new Error(
-      'No production Mailer configured. Wire a real transport in apps/api/src/mail/index.ts before deploying.',
+      'No production Mailer configured. Set RESEND_API_KEY + MAIL_FROM before deploying.',
     );
   }
   return new ConsoleMailer();

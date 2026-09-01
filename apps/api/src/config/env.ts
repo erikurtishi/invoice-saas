@@ -103,9 +103,68 @@ const envSchema = z.object({
   /** Fraction of transactions to trace, 0–1. Errors are always sent; this only
    *  gates performance sampling. Default 0 (errors only). */
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
+
+  /**
+   * Transactional email (backlog 4.3.4 / L1.1, Decision A — Resend). Optional:
+   * with no `RESEND_API_KEY` the app runs the `ConsoleMailer` (prints the
+   * verification / reset link to the server console) — same "degrade, don't
+   * crash" shape as the Stripe / AI ports, except `mail/index.ts` turns a missing
+   * mailer into a boot error when `NODE_ENV=production` (V1). When the key is
+   * present `MAIL_FROM` is required — the verified "from" address, e.g.
+   * `onboarding@resend.dev` on the provider sandbox, or `billing@yourdomain` once
+   * the domain is authed (V1.5.3).
+   */
+  RESEND_API_KEY: optionalEnv(z.string().startsWith('re_')),
+  MAIL_FROM: optionalEnv(z.string().min(3)),
+
+  /**
+   * AI invoice drafting (backlog Epic 7.1 / L1.2). Optional and off by default:
+   * with `AI_PROVIDER` unset the app runs the `NullDrafter`, `/ai/*` returns 503
+   * and the web hides the panel — same "degrade, don't crash" shape as the
+   * Stripe / Mailer ports. No model is contacted until a provider is named here.
+   *
+   *   AI_PROVIDER=anthropic  needs ANTHROPIC_API_KEY + AI_MODEL
+   *     (an existing hosted model, e.g. AI_MODEL=claude-haiku-4-5)
+   *   AI_PROVIDER=custom     needs AI_BASE_URL + AI_MODEL (+ optional AI_API_KEY)
+   *     (your own OpenAI-compatible /chat/completions endpoint)
+   */
+  AI_PROVIDER: optionalEnv(z.enum(['anthropic', 'custom'])),
+  /** Exact model id passed to the provider and recorded in `AiGenerationLog`. */
+  AI_MODEL: optionalEnv(z.string().min(1)),
+  /** `AI_PROVIDER=anthropic`. */
+  ANTHROPIC_API_KEY: optionalEnv(z.string().min(1)),
+  /** `AI_PROVIDER=custom` — base URL incl. any version segment, e.g.
+   *  `http://localhost:11434/v1`. */
+  AI_BASE_URL: optionalEnv(z.string().url()),
+  /** `AI_PROVIDER=custom` — bearer token; omit for an unauthenticated local server. */
+  AI_API_KEY: optionalEnv(z.string().min(1)),
 });
 
-const parsed = envSchema.safeParse(process.env);
+const parsed = envSchema
+  .superRefine((value, ctx) => {
+    if (value.RESEND_API_KEY && !value.MAIL_FROM) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MAIL_FROM'],
+        message: 'required when RESEND_API_KEY is set (the verified "from" address)',
+      });
+    }
+
+    const require = (key: keyof typeof value, why: string) => {
+      if (!value[key]) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: why });
+      }
+    };
+    if (value.AI_PROVIDER === 'anthropic') {
+      require('ANTHROPIC_API_KEY', 'required when AI_PROVIDER=anthropic');
+      require('AI_MODEL', 'required when AI_PROVIDER is set (the model id)');
+    }
+    if (value.AI_PROVIDER === 'custom') {
+      require('AI_BASE_URL', 'required when AI_PROVIDER=custom (the /v1 base URL)');
+      require('AI_MODEL', 'required when AI_PROVIDER is set (the model id)');
+    }
+  })
+  .safeParse(process.env);
 
 if (!parsed.success) {
   const issues = parsed.error.issues

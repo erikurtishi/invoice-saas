@@ -35,13 +35,26 @@ console redirects there until `onboardingCompleted`.
 
 ## `/admin/*` — admin center (`RequireAuth` + `ADMIN`)
 
-Phase 8 shipped backend-only, so this is currently one page.
+`AdminLayout` gates on `role === 'ADMIN'` and renders `<AdminShell>` (its own
+minimal chrome — top bar + horizontal section nav, distinct from `AppShell`).
+Screens are built on the already-complete Phase 8 backend (backlog Phase L2).
 
 | Path | Screen |
 |---|---|
-| `/admin` | `AdminHomePage` — "backend endpoints exist, console UI not built yet" |
-| `/admin/*` (unmatched) | `RouteStatusPage status={404}` |
+| `/admin` | `AdminOverviewPage` — MRR / subs / signups / churn / conversion + signups-per-day and month-end-MRR charts (L2.2) |
+| `/admin/tenants` | `AdminTenantsPage` — tenant list + detail + disable/enable/delete (L2.3) |
+| `/admin/grants` | `AdminGrantsPage` — manual subscription grant / extend / revoke (L2.4) |
+| `/admin/usage` | `AdminUsagePage` — AI / email / storage / anomalies (L2.5) |
+| `/admin/billing` | `AdminBillingPage` — unified Stripe + manual subscriptions, "needs attention" (L2.6) |
+| `/admin/support` | `AdminSupportPage` — ticket list (L2.7) |
+| `/admin/support/:id` | `AdminSupportDetailPage` — thread + reply + status transitions (L2.7) |
+| `/admin/audit-log` | `AdminAuditLogPage` — filterable admin action trail (L2.3.5) |
+| `/admin/*` (unmatched) | `RouteStatusPage status={404}` (inside `AdminShell`) |
 | any `/admin*` as a non-admin | `RouteStatusPage status={403}` |
+
+All of Phase L2 shipped — every `/admin/*` section above is a real screen, none are
+placeholders. Charts use `recharts`, lazy-loaded and theme-aware, imported only from
+`components/admin/admin-chart.tsx` (decision `D34`).
 
 ## Redirects
 
@@ -60,5 +73,5 @@ Phase 8 shipped backend-only, so this is currently one page.
   for a signed-in user, `/` ("Go to homepage") for a visitor.
 - API endpoints are unaffected — `apiFetch('/invoices')` etc. still hit the API
   origin; only React Router paths moved.
-- The full `/admin/*` screen set is future work (Phase 8 UI); the structure and
-  guard are in place now.
+- The `/admin/*` screen set (backlog Phase L2, on the complete Phase 8 backend) is
+  **done** — every section is a real screen.
