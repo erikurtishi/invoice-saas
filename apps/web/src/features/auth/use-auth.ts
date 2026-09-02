@@ -33,6 +33,9 @@ export function useSession() {
     // A 401 here means "not logged in", not "try again" — never retry it.
     retry: false,
     staleTime: 5 * 60 * 1000,
+    // Don't re-probe the session on every window refocus. Mid-session expiry is
+    // still caught by the global 401 handler on the next real request.
+    refetchOnWindowFocus: false,
   });
 }
 

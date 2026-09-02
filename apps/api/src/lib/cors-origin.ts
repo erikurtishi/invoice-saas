@@ -14,6 +14,13 @@ import { isProduction } from '../config/env.js';
  *
  * A request with no `Origin` header (same-origin, curl, server-to-server) is
  * always allowed — CORS only governs browser cross-origin calls.
+ *
+ * A disallowed origin is rejected by returning `false` (no CORS headers, browser
+ * blocks the response) — never by throwing, which would surface as a 500. This
+ * matters for the opaque `Origin: null` that the sandboxed `<iframe srcDoc>`
+ * invoice preview sends when it fetches `/fonts/*`: that route sets its own
+ * wildcard `Access-Control-Allow-Origin`, so it must be allowed to run rather
+ * than be short-circuited into an error here.
  */
 
 const TUNNEL_HOSTS = /\.(trycloudflare\.com|ngrok-free\.app|ngrok\.io|ngrok\.dev|loca\.lt)$/;
@@ -45,9 +52,10 @@ export function makeCorsOrigin(webOrigin: string) {
           return;
         }
       } catch {
-        /* not a URL — fall through to reject */
+        /* not a URL (e.g. the literal "null") — fall through to reject */
       }
     }
-    cb(new Error(`Origin ${origin} not allowed by CORS`));
+    // Reject cleanly: no CORS headers, no thrown error (which would be a 500).
+    cb(null, false);
   };
 }

@@ -3,6 +3,7 @@ import { apiErrorBodySchema, authSessionSchema } from '@invoice-saas/shared';
 import { env } from '../config/env';
 import { clearAccessToken, getAccessToken, setAccessToken } from './access-token';
 import { HttpError } from './http-error';
+import { clearSessionHint, markSessionHint } from './session-hint';
 
 /**
  * The one place the web app talks to the API (backlog 1.1.4 / 1.1.5).
@@ -57,6 +58,7 @@ async function performRefresh(): Promise<boolean> {
     if (!res.ok) return false;
     const session = authSessionSchema.parse(await res.json());
     setAccessToken(session.accessToken);
+    markSessionHint();
     return true;
   } catch {
     return false;
@@ -135,6 +137,7 @@ async function apiRequest(
     if (refreshed) res = await send();
     if (!refreshed || res.status === 401) {
       clearAccessToken();
+      clearSessionHint();
       if (notifyOnSessionExpiry) notifySessionExpired();
       throw await toHttpError(res);
     }
